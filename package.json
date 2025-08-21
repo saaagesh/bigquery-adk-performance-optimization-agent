@@ -1,0 +1,13 @@
+{
+  "name": "bigquery-optimizer",
+  "version": "1.0.0",
+  "description": "BigQuery query optimization tool",
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install"
+  },
+  "keywords": ["bigquery", "optimization", "gemini"],
+  "author": "",
+  "license": "MIT"
+}

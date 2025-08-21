@@ -1,0 +1,36 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+myenv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-error.log*
+package-lock.json
+
+# IDE/Editor specific
+.vscode/
+.idea/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Sample code
+adk-samples/
