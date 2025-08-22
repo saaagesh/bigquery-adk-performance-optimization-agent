@@ -85,12 +85,35 @@ const ExpensiveQueries = () => {
       setLoadingRecommendations(true);
       const response = await axios.post(`${API_BASE}/optimize`, {
         query: queryDetails.query,
-        ddl: queryDetails.ddl
+        ddl: queryDetails.ddl || ""
       });
       setRecommendations(response.data.recommendations);
     } catch (error) {
       console.error('Error getting recommendations:', error);
-      alert('Error getting recommendations. Check the backend logs and your Gemini API key.');
+      
+      // Set error message as recommendations to show in modal
+      let errorMessage = "**Error Getting AI Recommendations**\n\n";
+      
+      if (error.response?.data?.recommendations) {
+        // Backend provided a formatted error message
+        setRecommendations(error.response.data.recommendations);
+      } else if (error.response?.data?.details) {
+        errorMessage += `Details: ${error.response.data.details}\n\n`;
+        errorMessage += "**Troubleshooting Steps:**\n";
+        errorMessage += "1. Check that your Gemini API key is configured correctly\n";
+        errorMessage += "2. Verify the backend service is running\n";
+        errorMessage += "3. Check the browser console and backend logs for more details\n";
+        errorMessage += "4. Ensure you have proper permissions for BigQuery and Gemini API";
+        setRecommendations(errorMessage);
+      } else {
+        errorMessage += `Error: ${error.message}\n\n`;
+        errorMessage += "**Common Issues:**\n";
+        errorMessage += "- Backend service not running\n";
+        errorMessage += "- Missing or invalid Gemini API key\n";
+        errorMessage += "- Network connectivity issues\n";
+        errorMessage += "- BigQuery permissions problems";
+        setRecommendations(errorMessage);
+      }
     } finally {
       setLoadingRecommendations(false);
     }
@@ -211,10 +234,11 @@ const ExpensiveQueries = () => {
               <div className="recommendations-section">
                 <div className="section-header">
                   <h4>AI Optimization Recommendations</h4>
-                  <button 
-                    onClick={getOptimizationRecommendations} 
-                    disabled={loadingRecommendations || !queryDetails.ddl}
+                  <button
+                    onClick={getOptimizationRecommendations}
+                    disabled={loadingRecommendations}
                     className="optimize-btn"
+                    title={!queryDetails.ddl ? 'DDL information not available, but recommendations can still be generated based on the query structure' : 'Get AI-powered optimization recommendations'}
                   >
                     {loadingRecommendations ? 'Analyzing...' : 'Get AI Recommendations'}
                   </button>

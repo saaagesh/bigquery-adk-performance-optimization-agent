@@ -4,10 +4,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 from google.cloud import bigquery
-from google.adk.agents import LlmAgent
-from google.adk.runners import InMemoryRunner
 import google.generativeai as genai
-from google.ai import generativelanguage as glm
 from config import config
 
 # Load environment variables from .env file
@@ -35,16 +32,12 @@ except Exception as e:
     bq_client = None
     project_id = config.GOOGLE_CLOUD_PROJECT
 
-# Define the BigQuery Optimizer Agent
-optimizer_agent = LlmAgent(
-    name="optimizer_agent",
-    description="BigQuery Optimization Expert",
-    model=config.GEMINI_MODEL,
-    instruction="You are a Google Cloud BigQuery optimization expert.",
-)
-
-# Create a runner for the agent
-runner = InMemoryRunner(agent=optimizer_agent)
+# Initialize Gemini model directly
+if config.GEMINI_API_KEY:
+    genai.configure(api_key=config.GEMINI_API_KEY)
+    model = genai.GenerativeModel(config.GEMINI_MODEL)
+else:
+    model = None
 
 @app.route('/api/expensive-queries', methods=['GET'])
 def get_expensive_queries():
@@ -163,79 +156,118 @@ def get_query_details():
 
 
 @app.route('/api/optimize', methods=['POST'])
-async def optimize_query():
+def optimize_query():
     """
-    Uses the ADK agent to get optimization recommendations for a query.
+    Uses Gemini API directly to get optimization recommendations for a query.
     """
     data = request.get_json()
     query = data.get('query')
     ddl = data.get('ddl')
 
-    if not query or not ddl:
-        return jsonify({"error": "Both 'query' and 'ddl' are required"}), 400
+    if not query:
+        return jsonify({"error": "Query is required"}), 400
 
-    print(f"Received query for optimization: {query}")
-    print(f"Received DDL for optimization: {ddl}")
+    print(f"Received query for optimization: {query[:200]}...")
+    print(f"Received DDL for optimization: {ddl[:200] if ddl else 'No DDL provided'}...")
+
+    # Check if we have the required configuration
+    if not config.GEMINI_API_KEY or not model:
+        return jsonify({"error": "Gemini API key not configured or model not initialized"}), 500
 
     try:
-        prompt = f"""
-Analyze the user's query and the provided table/view DDLs.
+        # Create a comprehensive prompt for BigQuery optimization
+        prompt = f"""You are a Google Cloud BigQuery optimization expert. Analyze the provided SQL query and table schemas to provide specific, actionable optimization recommendations.
 
-Based on your analysis, provide the following in markdown format:
-1.  **Optimization Suggestions:** A list of specific, actionable recommendations to improve performance and reduce cost. Explain the reasoning behind each suggestion. If the query is already optimal, state that and explain why.
-2.  **Rewritten Query:** The rewritten, optimized SQL query. If no changes are needed, return the original query.
-
----
-**QUERY:**
+**QUERY TO ANALYZE:**
 ```sql
 {query}
 ```
 
-**DDL:**
+**TABLE SCHEMAS:**
 ```sql
-{ddl}
+{ddl if ddl else "No schema information provided - analysis will be based on query structure only"}
 ```
----
-"""
-        
-        # Correctly invoke the agent via the runner
-        final_event = None
-        user_id = str(uuid.uuid4())
-        session = await runner.session_service.create_session(
-            app_name=runner.app_name, user_id=user_id
-        )
-        session_id = session.id
 
-        try:
-            print("--- AGENT INVOCATION ---")
-            final_event = None
-            async for event in runner.run_async(
-                user_id=user_id,
-                session_id=session_id,
-                new_message=glm.Content(parts=[glm.Part(text=prompt)])
-            ):
-                print(f"EVENT AUTHOR: {event.author}")
-                if event.content and event.content.parts:
-                    # Log the first 200 characters of the content
-                    print(f"EVENT CONTENT: {event.content.parts[0].text[:200]}...")
-                final_event = event
-            print("--- AGENT INVOCATION END ---")
-        finally:
-            await runner.session_service.delete_session(
-                app_name=runner.app_name, user_id=user_id, session_id=session_id
-            )
-        
-        # Extract the text from the final event's response
-        recommendations = ""
-        if final_event and final_event.content and final_event.content.parts:
-             recommendations = final_event.content.parts[0].text
+Please provide your analysis in the following markdown format:
 
+## BigQuery Optimization Analysis
+
+### Query Overview
+Briefly describe what this query does and its current approach.
+
+### Performance Issues Identified
+List specific performance concerns found in the query:
+
+### Optimization Recommendations
+
+#### 1. Query Structure Optimizations
+- Specific recommendations for improving the query structure
+- Focus on SELECT clause optimization, WHERE clause placement, etc.
+
+#### 2. BigQuery-Specific Optimizations
+- Partitioning strategies (if applicable)
+- Clustering recommendations
+- Data type optimizations
+- Avoiding unnecessary data scanning
+
+#### 3. Cost Optimization
+- Ways to reduce slot usage and data processing
+- Recommendations for reducing bytes billed
+
+### Optimized Query
+```sql
+-- Provide an optimized version of the query
+-- Include comments explaining the key changes
+{query}
+```
+
+### Expected Impact
+- **Performance**: Estimated improvement in execution time
+- **Cost**: Potential reduction in slot usage and bytes processed
+- **Scalability**: How these changes will help as data grows
+
+### Additional Considerations
+- Any trade-offs or limitations of the optimizations
+- Monitoring recommendations
+- Future optimization opportunities
+
+Focus specifically on BigQuery best practices including:
+- Avoiding SELECT * when possible
+- Using appropriate WHERE clauses early
+- Leveraging partitioning and clustering
+- Optimizing JOINs and subqueries
+- Using appropriate aggregation strategies
+- Minimizing data movement and shuffling"""
+
+        print("--- GEMINI API CALL START ---")
+        
+        # Generate content using Gemini
+        response = model.generate_content(prompt)
+        
+        if response and response.text:
+            recommendations = response.text
+            print(f"Generated recommendations length: {len(recommendations)}")
+            print(f"First 200 chars: {recommendations[:200]}...")
+        else:
+            recommendations = "**No recommendations generated**\n\nThe AI service did not return any recommendations. This could be due to:\n- API rate limits\n- Content filtering\n- Service availability issues\n\nPlease try again in a moment."
+            print("No response text received from Gemini")
+
+        print("--- GEMINI API CALL END ---")
+        
         return jsonify({"recommendations": recommendations})
+        
     except Exception as e:
-        print(f"Error getting optimization from agent: {e}")
+        error_msg = f"Error getting optimization from Gemini: {str(e)}"
+        print(error_msg)
         import traceback
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        
+        # Return a more helpful error message
+        return jsonify({
+            "error": "Failed to generate AI recommendations",
+            "details": str(e),
+            "recommendations": f"**Error generating recommendations**\n\nThere was an issue connecting to the Gemini AI service: {str(e)}\n\n**Troubleshooting steps:**\n1. Verify your Gemini API key is valid and has proper permissions\n2. Check if you have sufficient API quota\n3. Ensure network connectivity to Google AI services\n4. Check the backend logs for more detailed error information\n\n**Current configuration:**\n- Model: {config.GEMINI_MODEL}\n- API Key configured: {'Yes' if config.GEMINI_API_KEY else 'No'}"
+        }), 500
 
 @app.route('/api/organization-overview', methods=['GET'])
 def get_organization_overview():
