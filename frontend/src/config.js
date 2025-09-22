@@ -11,6 +11,10 @@ class Config {
   static DEFAULT_TIME_RANGE = import.meta.env.VITE_REACT_APP_DEFAULT_TIME_RANGE || '24h';
   static REFRESH_INTERVAL_MS = parseInt(import.meta.env.VITE_REACT_APP_REFRESH_INTERVAL_MS || '30000');
   
+  // Project and Region Defaults
+  static DEFAULT_PROJECT = import.meta.env.VITE_REACT_APP_DEFAULT_PROJECT || 'any_value';
+  static DEFAULT_REGION = import.meta.env.VITE_REACT_APP_DEFAULT_REGION || 'us';
+  
   // Time Range Options
   static TIME_RANGE_OPTIONS = [
     { value: '1h', label: 'Last Hour' },
@@ -60,7 +64,9 @@ class Config {
       nodeEnv: import.meta.env.MODE,
       apiBaseUrl: this.API_BASE_URL,
       defaultTimeRange: this.DEFAULT_TIME_RANGE,
-      refreshInterval: this.REFRESH_INTERVAL_MS
+      refreshInterval: this.REFRESH_INTERVAL_MS,
+      defaultProject: this.DEFAULT_PROJECT,
+      defaultRegion: this.DEFAULT_REGION
     };
   }
 }

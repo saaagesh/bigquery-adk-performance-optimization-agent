@@ -14,8 +14,8 @@ export const useAppContext = () => {
 
 export const AppProvider = ({ children }) => {
   const [projects, setProjects] = useState([]);
-  const [selectedProject, setSelectedProject] = useState('any_value');
-  const [selectedRegion, setSelectedRegion] = useState('us');
+  const [selectedProject, setSelectedProject] = useState(Config.DEFAULT_PROJECT);
+  const [selectedRegion, setSelectedRegion] = useState(Config.DEFAULT_REGION);
   const [loading, setLoading] = useState(false);
 
   const regions = [
@@ -47,9 +47,21 @@ export const AppProvider = ({ children }) => {
       setProjects(response.data);
     } catch (error) {
       console.error('Error fetching projects:', error);
-      setProjects([
+      // Ensure the default project is always available
+      const fallbackProjects = [
         { id: 'any_value', name: 'is any value', display_name: 'All Projects' }
-      ]);
+      ];
+      
+      // Add the default project if it's not 'any_value'
+      if (Config.DEFAULT_PROJECT !== 'any_value') {
+        fallbackProjects.push({
+          id: Config.DEFAULT_PROJECT,
+          name: Config.DEFAULT_PROJECT,
+          display_name: Config.DEFAULT_PROJECT
+        });
+      }
+      
+      setProjects(fallbackProjects);
     } finally {
       setLoading(false);
     }
@@ -58,6 +70,23 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     fetchProjects();
   }, [selectedRegion]);
+
+  // Ensure the selected project is always in the projects list
+  useEffect(() => {
+    if (projects.length > 0 && selectedProject !== 'any_value') {
+      const projectExists = projects.some(project => project.id === selectedProject);
+      if (!projectExists) {
+        setProjects(prev => [
+          ...prev,
+          {
+            id: selectedProject,
+            name: selectedProject,
+            display_name: selectedProject
+          }
+        ]);
+      }
+    }
+  }, [projects, selectedProject]);
 
   const value = {
     projects,

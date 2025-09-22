@@ -1,15 +1,29 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { BarChart3, Database, AlertTriangle, Activity, Zap, Clock } from 'lucide-react';
+import { 
+  BarChart3, 
+  Database, 
+  AlertTriangle, 
+  Activity, 
+  Zap, 
+  Clock, 
+  Target,
+  Search,
+  BookOpen,
+  TrendingUp
+} from 'lucide-react';
 
 const Layout = ({ children }) => {
   const location = useLocation();
 
   const navItems = [
-    { path: '/', label: 'Organization Overview', icon: BarChart3 },
-    { path: '/pulse', label: 'Pulse', icon: Zap },
-    { path: '/time-window', label: 'Time Window Investigation', icon: Clock },
-    { path: '/expensive-queries', label: 'Expensive Queries', icon: AlertTriangle },
+    { path: '/', label: 'Query Optimizer', icon: Target },
+    { path: '/top-queries', label: 'Top Expensive Queries', icon: TrendingUp },
+    { path: '/manual-analyzer', label: 'Manual Analyzer', icon: Search },
+    { path: '/guided-workflow', label: 'Guided Workflow', icon: BookOpen },
+    // Legacy items in dropdown or secondary menu
+    { path: '/organization', label: 'Organization Overview', icon: BarChart3, legacy: true },
+    { path: '/pulse', label: 'Pulse View', icon: Zap, legacy: true },
   ];
 
   return (
@@ -17,10 +31,10 @@ const Layout = ({ children }) => {
       <header className="header">
         <div className="header-content">
           <div className="header-title">
-            <Database className="header-icon" />
+            <Target className="header-icon" />
             <div>
-              <h1>BigQuery Analytics Hub</h1>
-              <p>Monitor, optimize, and manage your BigQuery resources</p>
+              <h1>BigQuery Query Optimizer</h1>
+              <p>Intelligent query optimization with AI-powered insights</p>
             </div>
           </div>
         </div>
@@ -28,7 +42,7 @@ const Layout = ({ children }) => {
 
       <nav className="navigation">
         <div className="nav-container">
-          {navItems.map(({ path, label, icon: Icon }) => (
+          {navItems.filter(item => !item.legacy).map(({ path, label, icon: Icon }) => (
             <Link
               key={path}
               to={path}
@@ -38,6 +52,8 @@ const Layout = ({ children }) => {
               <span>{label}</span>
             </Link>
           ))}
+          
+          {/* Legacy items dropdown or secondary nav could be added here */}
         </div>
       </nav>
 
