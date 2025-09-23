@@ -198,9 +198,14 @@ def get_query_details():
 
         execution_plan = []
         execution_plan_summary = ""
-        if job.query_plan:
-            print(f"Query plan found for job {job_id}. Number of stages: {len(job.query_plan)}")
-            for stage in job.query_plan:
+        print(f"\n=== EXECUTION PLAN RETRIEVAL FOR JOB {job_id} ===")
+        print(f"Job type: {job.job_type}")
+        print(f"Has query_plan attribute: {hasattr(job, 'query_plan')}")
+        
+        if job.job_type == "QUERY" and hasattr(job, 'query_plan') and job.query_plan:
+            print(f"✅ Query plan found for job {job_id}. Number of stages: {len(job.query_plan)}")
+            for i, stage in enumerate(job.query_plan):
+                print(f"  Stage {i+1}: {getattr(stage, 'name', 'Unknown')} - {getattr(stage, 'status', 'Unknown')}")
                 execution_plan.append({
                     "id": getattr(stage, 'entry_id', 'N/A'), # Corrected attribute
                     "name": getattr(stage, 'name', 'N/A'),
@@ -215,6 +220,8 @@ def get_query_details():
                     } for step in getattr(stage, 'steps', [])] if getattr(stage, 'steps', []) else [],
                     "shuffledWorkerLeakage": getattr(stage, 'shuffled_worker_leakage_bytes', 0) > 0
                 })
+            
+            print(f"Execution plan extracted: {len(execution_plan)} stages")
             
             # Generate Gemini explanation for the execution plan
             if config.GEMINI_API_KEY and model:
@@ -247,7 +254,12 @@ Provide a summary of the plan, highlight critical stages, and suggest general op
                     print(f"Error generating execution plan explanation with Gemini: {gemini_e}")
                     execution_plan_summary = f"Error generating explanation: {gemini_e}"
         else:
-            print(f"No query plan found for job {job_id}.")
+            print(f"❌ No query plan found for job {job_id}.")
+            print(f"   Possible reasons:")
+            print(f"   - Job type is not QUERY: {job.job_type}")
+            print(f"   - Query plan not available (simple queries may not have plans)")
+            print(f"   - Job too old or not completed successfully")
+        print(f"=== END EXECUTION PLAN RETRIEVAL ===")
 
         performance_insights = None
         if job.job_type == "QUERY" and job.state == 'DONE':
@@ -512,13 +524,27 @@ Provide a summary of the plan, highlight critical stages, and suggest general op
             print(f"No tables identified for schema retrieval from job {job_id}. Job type: {job.job_type}")
             ddl_statements.append("/* No table schemas could be identified from this query */")
 
-        print(f"Sending execution_plan to UI: {json.dumps(execution_plan, indent=2)[:500]}... (truncated)")
+        print(f"Sending execution_plan to UI: {len(execution_plan)} stages")
+        if len(execution_plan) > 0:
+            print(f"First stage: {execution_plan[0]}")
+            print(f"Execution plan summary length: {len(execution_plan_summary)} characters")
+        else:
+            print(f"⚠️ WARNING: No execution plan to send to UI")
         return jsonify({
             "query": job.query,
             "ddl": "\n\n---\n\n".join(ddl_statements),
             "execution_plan": execution_plan,
-            "execution_plan_summary": execution_plan_summary, # New field
-            "performance_insights": performance_insights
+            "execution_plan_summary": execution_plan_summary,
+            "performance_insights": performance_insights,
+            "debug_info": {
+                "job_id": job_id,
+                "job_type": job.job_type,
+                "job_state": job.state,
+                "execution_plan_stages": len(execution_plan),
+                "execution_plan_summary_length": len(execution_plan_summary),
+                "has_performance_insights": performance_insights is not None,
+                "ddl_statements_count": len(ddl_statements)
+            }
         })
 
     except Exception as e:
@@ -539,6 +565,13 @@ def optimize_query():
     execution_plan_summary = data.get('execution_plan_summary', '')
     performance_insights = data.get('performance_insights')
 
+    print(f"=== OPTIMIZATION REQUEST RECEIVED ===")
+    print(f"Query length: {len(query) if query else 0} characters")
+    print(f"DDL length: {len(ddl) if ddl else 0} characters")
+    print(f"Execution plan stages: {len(execution_plan) if execution_plan else 0}")
+    print(f"Execution plan summary length: {len(execution_plan_summary) if execution_plan_summary else 0} characters")
+    print(f"Performance insights available: {'Yes' if performance_insights else 'No'}")
+    
     if not query:
         return jsonify({"error": "Query is required"}), 400
 
@@ -556,9 +589,16 @@ def optimize_query():
         # Prepare execution plan section for the prompt
         execution_plan_text = ""
         if execution_plan and len(execution_plan) > 0:
+            print(f"=== ADDING EXECUTION PLAN TO GEMINI PROMPT ===")
+            print(f"Execution plan has {len(execution_plan)} stages")
             execution_plan_text = "**EXECUTION PLAN:**\n```json\n" + json.dumps(execution_plan, indent=2) + "\n```\n\n"
             if execution_plan_summary:
+                print(f"Adding execution plan summary ({len(execution_plan_summary)} chars)")
                 execution_plan_text += f"**EXECUTION PLAN SUMMARY:**\n{execution_plan_summary}\n\n"
+            else:
+                print(f"⚠️ No execution plan summary available")
+        else:
+            print(f"⚠️ WARNING: No execution plan data to include in Gemini prompt")
         
         # Prepare performance insights section
         performance_insights_text = ""
@@ -648,7 +688,11 @@ Focus specifically on BigQuery best practices including:
         print(f"Gemini Prompt length: {len(prompt)} characters")
         print(f"Includes execution plan: {'Yes' if execution_plan else 'No'}")
         print(f"Includes performance insights: {'Yes' if performance_insights else 'No'}")
-        print(f"Full Gemini Prompt:\n{prompt}")
+        if execution_plan:
+            print(f"Execution plan stages being sent to Gemini: {len(execution_plan)}")
+            for i, stage in enumerate(execution_plan[:3]):  # Show first 3 stages
+                print(f"  Stage {i+1}: {stage.get('name', 'Unknown')} - {stage.get('status', 'Unknown')}")
+        print(f"Full Gemini Prompt:\n{prompt[:2000]}...")  # Show first 2000 chars
         print("--- PROMPT END ---")
         
         # Generate content using Gemini
@@ -1541,6 +1585,144 @@ def get_time_window_investigation():
         print(f"Error fetching time window investigation data: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/analyze-manual-query', methods=['POST'])
+@log_api_call
+def analyze_manual_query():
+    """
+    Comprehensive analysis for manually entered queries using the same logic as expensive queries.
+    This provides DDL extraction and schema analysis even without job execution data.
+    """
+    if not bq_client:
+        return jsonify({"error": "BigQuery client not initialized"}), 500
+    
+    data = request.get_json()
+    query_text = data.get('query', '')
+    
+    if not query_text.strip():
+        return jsonify({"error": "Query text is required"}), 400
+    
+    try:
+        print(f"=== MANUAL QUERY COMPREHENSIVE ANALYSIS START ===")
+        print(f"Query length: {len(query_text)} characters")
+        
+        # Use the same DDL extraction logic as expensive queries
+        ddl_statements = []
+        tables_to_fetch = []
+        
+        # Parse the SQL query to extract table references (same logic as expensive queries)
+        import re
+        
+        # Remove comments and normalize whitespace
+        query_clean = re.sub(r'/\*.*?\*/', '', query_text, flags=re.DOTALL)
+        query_clean = re.sub(r'--.*?\n', '\n', query_clean)
+        query_clean = re.sub(r'\s+', ' ', query_clean)
+        
+        # Pattern to match table references: project.dataset.table or `project.dataset.table`
+        table_patterns = [
+            r'FROM\s+`([^`]+)`',  # FROM `project.dataset.table`
+            r'JOIN\s+`([^`]+)`',  # JOIN `project.dataset.table`
+            r'FROM\s+([\w\.-]+)',  # FROM project.dataset.table
+            r'JOIN\s+([\w\.-]+)',  # JOIN project.dataset.table
+            r'WITH\s+[\w\s]*\s+AS\s*\(\s*SELECT\s+.*?FROM\s+`([^`]+)`',  # CTEs
+            r'WITH\s+[\w\s]*\s+AS\s*\(\s*SELECT\s+.*?FROM\s+([\w\.-]+)',  # CTEs without backticks
+        ]
+        
+        found_tables = set()
+        for pattern in table_patterns:
+            matches = re.findall(pattern, query_clean, re.IGNORECASE)
+            for match in matches:
+                table_name = match.strip('`').strip()
+                if '.' in table_name:  # Ensure it looks like a fully qualified table name
+                    found_tables.add(table_name)
+        
+        print(f"Parsed {len(found_tables)} table references from manual query: {list(found_tables)}")
+        
+        for table_name in found_tables:
+            parts = table_name.split('.')
+            if len(parts) >= 3:
+                tables_to_fetch.append({
+                    'project': parts[0],
+                    'dataset': parts[1],
+                    'table': parts[2],
+                    'source': 'manual_query_parsing'
+                })
+            elif len(parts) == 2 and project_id:
+                # Assume current project if only dataset.table provided
+                tables_to_fetch.append({
+                    'project': project_id,
+                    'dataset': parts[0],
+                    'table': parts[1],
+                    'source': 'manual_query_parsing_inferred_project'
+                })
+        
+        # Fetch DDL for all identified tables (same logic as expensive queries)
+        if tables_to_fetch:
+            print(f"Fetching DDL for {len(tables_to_fetch)} tables from manual query analysis.")
+            for table_info in tables_to_fetch:
+                try:
+                    table_id = f"{table_info['project']}.{table_info['dataset']}.{table_info['table']}"
+                    print(f"Fetching schema for {table_id} (source: {table_info['source']})")
+                    
+                    table = bq_client.get_table(table_id)
+                    
+                    if table.view_query:
+                        ddl = f"-- View: {table_id} (source: {table_info['source']})\nCREATE OR REPLACE VIEW `{table_id}` AS\n{table.view_query}"
+                    else:
+                        schema_sql = []
+                        for field in table.schema:
+                            # Include more detailed field information (same as expensive queries)
+                            field_def = f"  `{field.name}` {field.field_type}"
+                            if field.mode == 'REQUIRED':
+                                field_def += " NOT NULL"
+                            elif field.mode == 'REPEATED':
+                                field_def += " REPEATED"
+                            if field.description:
+                                field_def += f" -- {field.description}"
+                            schema_sql.append(field_def)
+                        
+                        ddl = f"-- Table: {table_id} (source: {table_info['source']})\nCREATE TABLE `{table_id}` (\n" + ",\n".join(schema_sql) + "\n)"
+                        
+                        # Add table metadata if available (same as expensive queries)
+                        if hasattr(table, 'num_rows') and table.num_rows is not None:
+                            ddl += f"\n-- Rows: {table.num_rows:,}"
+                        if hasattr(table, 'num_bytes') and table.num_bytes is not None:
+                            ddl += f"\n-- Size: {table.num_bytes / (1024**3):.2f} GB"
+                        if hasattr(table, 'time_partitioning') and table.time_partitioning:
+                            ddl += f"\n-- Partitioned by: {table.time_partitioning.field or 'ingestion time'}"
+                        if hasattr(table, 'clustering_fields') and table.clustering_fields:
+                            ddl += f"\n-- Clustered by: {', '.join(table.clustering_fields)}"
+                    
+                    ddl_statements.append(ddl)
+                    
+                except Exception as e:
+                    error_msg = f"/* ERROR fetching DDL for {table_id} (source: {table_info['source']}): {e} */"
+                    print(f"Error fetching DDL for table {table_id}: {e}")
+                    ddl_statements.append(error_msg)
+        else:
+            print(f"No tables identified for schema retrieval from manual query.")
+            ddl_statements.append("/* No table schemas could be identified from this query */")
+        
+        ddl_text = "\n\n---\n\n".join(ddl_statements)
+        print(f"Manual query comprehensive analysis - DDL length: {len(ddl_text)}")
+        print(f"=== MANUAL QUERY COMPREHENSIVE ANALYSIS END ===")
+        
+        return jsonify({
+            "query": query_text,
+            "ddl": ddl_text,
+            "execution_plan": [],  # Not available for manual queries
+            "execution_plan_summary": "",  # Not available for manual queries
+            "performance_insights": None,  # Not available for manual queries
+            "analysis_mode": "comprehensive_manual",
+            "tables_analyzed": len(tables_to_fetch),
+            "schema_extraction_success": len([ddl for ddl in ddl_statements if not ddl.startswith('/*')])
+        })
+        
+    except Exception as e:
+        print(f"Error in manual query comprehensive analysis: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/analyze-query-manual', methods=['POST'])
 @log_api_call
 def analyze_query_manual():
@@ -1761,6 +1943,125 @@ Please provide your analysis in markdown format with specific BigQuery optimizat
         
     except Exception as e:
         print(f"Error in manual query analysis: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/find-job-by-query', methods=['POST'])
+@log_api_call
+def find_job_by_query():
+    """
+    Find a BigQuery job ID for a given query text by searching recent job history.
+    """
+    if not bq_client:
+        return jsonify({"error": "BigQuery client not initialized"}), 500
+    
+    data = request.get_json()
+    query_text = data.get('query', '')
+    project_filter = data.get('project', 'any_value')
+    region_filter = data.get('region', 'us')
+    
+    if not query_text.strip():
+        return jsonify({"error": "Query text is required"}), 400
+    
+    try:
+        # Build project filter clause
+        project_where_clause = ""
+        if project_filter != 'any_value':
+            project_where_clause = f"AND project_id = '{project_filter}'"
+        
+        print(f"=== JOB DISCOVERY FOR MANUAL QUERY ===")
+        print(f"Input query length: {len(query_text)} characters")
+        print(f"Searching last 7 days of job history...")
+        
+        # Normalize the input query for comparison
+        normalized_input = ' '.join(query_text.split()).lower()
+        print(f"Normalized input query (first 100 chars): {normalized_input[:100]}...")
+        
+        # Search for exact or very similar queries in recent history
+        search_query = f"""
+            SELECT
+                job_id,
+                query,
+                creation_time,
+                total_slot_ms,
+                state
+            FROM `region-us.INFORMATION_SCHEMA.JOBS_BY_PROJECT`
+            WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+                AND job_type = 'QUERY'
+                AND query IS NOT NULL
+                AND total_slot_ms > 0
+                AND state = 'DONE'
+                {project_where_clause}
+            ORDER BY creation_time DESC
+            LIMIT 100
+        """
+        
+        query_job = bq_client.query(search_query)
+        results = [dict(row) for row in query_job.result()]
+        
+        print(f"Found {len(results)} potential matching jobs in recent history")
+        if len(results) == 0:
+            print("❌ No jobs found in recent history - query may not have been executed recently")
+            return jsonify({
+                "jobId": None,
+                "message": "No matching queries found in recent execution history",
+                "suggestion": "Execute this query in BigQuery first to enable comprehensive analysis",
+                "debug": f"Searched {len(results)} recent jobs, no matches found"
+            })
+        
+        # Find the best match by comparing normalized queries
+        best_match = None
+        highest_similarity = 0
+        
+        for result in results:
+            if result['query']:
+                normalized_result = ' '.join(result['query'].split()).lower()
+                
+                # Calculate simple similarity score
+                if normalized_input == normalized_result:
+                    # Exact match - return immediately
+                    print(f"✅ EXACT MATCH FOUND: Job ID {result['job_id']} for query")
+                    return jsonify({
+                        "jobId": result['job_id'],
+                        "similarity": 100,
+                        "matchType": "exact",
+                        "executionTime": result['creation_time'].isoformat(),
+                        "slotMs": result['total_slot_ms'],
+                        "state": result['state']
+                    })
+                
+                # Simple similarity check based on common words
+                input_words = set(normalized_input.split())
+                result_words = set(normalized_result.split())
+                
+                if len(input_words) > 0 and len(result_words) > 0:
+                    common_words = input_words.intersection(result_words)
+                    similarity = (len(common_words) * 2) / (len(input_words) + len(result_words)) * 100
+                    
+                    # Require at least 90% similarity for high confidence match
+                    if similarity > highest_similarity and similarity >= 90:
+                        highest_similarity = similarity
+                        best_match = {
+                            "jobId": result['job_id'],
+                            "similarity": similarity,
+                            "matchType": "similar",
+                            "executionTime": result['creation_time'].isoformat(),
+                            "slotMs": result['total_slot_ms']
+                        }
+        
+        if best_match:
+            print(f"✅ SIMILAR MATCH FOUND: Job ID {best_match['jobId']} with {best_match['similarity']:.1f}% similarity")
+            return jsonify(best_match)
+        else:
+            print(f"❌ No matching queries found with >90% similarity")
+            return jsonify({
+                "jobId": None,
+                "message": "No matching queries found in recent execution history",
+                "suggestion": "Execute this query in BigQuery first to enable comprehensive analysis",
+                "debug": f"Searched {len(results)} recent jobs, best similarity was {highest_similarity:.1f}%"
+            })
+        
+    except Exception as e:
+        print(f"Error finding job by query: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/search-historical-queries', methods=['POST'])

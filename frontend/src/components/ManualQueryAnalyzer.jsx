@@ -1,230 +1,279 @@
 import React, { useState } from 'react';
 import { 
   Search, 
-  Play, 
   FileText, 
   Clock, 
   Database, 
   TrendingUp,
   AlertCircle,
-  CheckCircle,
   Loader,
   Copy,
-  Download
+  Eye,
+  BarChart3,
+  Zap,
+  Hash
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useAppContext } from '../context/AppContext';
 import Config from '../config';
 import axios from 'axios';
+import ExecutionPlanViewer from './ExecutionPlanViewer';
+import AIRecommendationsModal from './AIRecommendationsModal';
 import './ManualQueryAnalyzer.css';
+import './AIRecommendationsModal.css';
 
 const API_BASE = Config.API_BASE_URL;
 
 const ManualQueryAnalyzer = () => {
   const { selectedProject, selectedRegion } = useAppContext();
   const [queryText, setQueryText] = useState('');
-  const [analysis, setAnalysis] = useState(null);
-  const [historicalData, setHistoricalData] = useState(null);
+  const [jobId, setJobId] = useState('');
+  const [queryDetails, setQueryDetails] = useState(null);
+  const [recommendations, setRecommendations] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState({
-    analysis: false,
-    historical: false,
-    validation: false
+    details: false,
+    recommendations: false
   });
-  const [validationResult, setValidationResult] = useState(null);
   const [activeTab, setActiveTab] = useState('input');
+  const [analysisMode, setAnalysisMode] = useState('query'); // 'query' or 'jobid'
 
-  const validateQuery = async () => {
-    if (!queryText.trim()) return;
+  const getQueryHash = (query) => {
+    if (!query) return 'N/A';
+    let hash = 0;
+    for (let i = 0; i < query.length; i++) {
+      const char = query.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16).substring(0, 8).toUpperCase();
+  };
 
-    setLoading(prev => ({ ...prev, validation: true }));
-    
+  const findJobIdInQuery = async () => {
+    if (!queryText.trim()) return null;
+
     try {
-      // Simple client-side validation first
-      const basicValidation = {
-        hasSql: queryText.trim().length > 0,
-        hasSelect: /select/i.test(queryText),
-        hasFrom: /from/i.test(queryText),
-        hasInformationSchema: /information_schema/i.test(queryText),
-        estimatedComplexity: calculateComplexity(queryText)
-      };
-
-      setValidationResult({
-        isValid: basicValidation.hasSql && basicValidation.hasSelect && !basicValidation.hasInformationSchema,
-        warnings: generateWarnings(basicValidation),
-        suggestions: generateSuggestions(queryText),
-        complexity: basicValidation.estimatedComplexity
-      });
-
-    } catch (error) {
-      console.error('Query validation error:', error);
-      setValidationResult({
-        isValid: false,
-        warnings: ['Error validating query syntax'],
-        suggestions: [],
-        complexity: 'unknown'
-      });
-    } finally {
-      setLoading(prev => ({ ...prev, validation: false }));
-    }
-  };
-
-  const calculateComplexity = (query) => {
-    const joinCount = (query.match(/join/gi) || []).length;
-    const subqueryCount = (query.match(/\(/g) || []).length;
-    const windowFunctionCount = (query.match(/over\s*\(/gi) || []).length;
-    const cteCount = (query.match(/with\s+/gi) || []).length;
-
-    const score = joinCount * 2 + subqueryCount + windowFunctionCount * 3 + cteCount * 2;
-    
-    if (score <= 3) return 'Simple';
-    if (score <= 8) return 'Medium';
-    return 'Complex';
-  };
-
-  const generateWarnings = (validation) => {
-    const warnings = [];
-    
-    if (!validation.hasSelect) warnings.push('Query should contain SELECT statement');
-    if (!validation.hasFrom) warnings.push('Query should contain FROM clause');
-    if (validation.hasInformationSchema) warnings.push('Avoid querying INFORMATION_SCHEMA in production');
-    
-    return warnings;
-  };
-
-  const generateSuggestions = (query) => {
-    const suggestions = [];
-    
-    if (!/limit/i.test(query)) {
-      suggestions.push('Consider adding LIMIT clause for testing');
-    }
-    if (!/where/i.test(query)) {
-      suggestions.push('Add WHERE clauses to reduce data scanning');
-    }
-    if (/select\s*\*/i.test(query)) {
-      suggestions.push('Specify column names instead of SELECT *');
-    }
-    
-    return suggestions;
-  };
-
-  const searchHistoricalData = async () => {
-    if (!queryText.trim()) return;
-
-    setLoading(prev => ({ ...prev, historical: true }));
-    
-    try {
-      // Search for similar queries in historical data
-      const response = await axios.post(`${API_BASE}/search-historical-queries`, {
+      console.log('=== SEARCHING FOR JOB ID ===');
+      console.log('Query text length:', queryText.length);
+      // Search for recent queries matching this query text
+      const response = await axios.post(`${API_BASE}/find-job-by-query`, {
         query: queryText,
         project: selectedProject,
         region: selectedRegion
       });
       
-      setHistoricalData(response.data);
+      console.log('Job search response:', response.data);
+      return response.data.jobId || null;
     } catch (error) {
-      console.error('Error searching historical data:', error);
-      // Create mock historical data for demo
-      setHistoricalData({
-        similarQueries: [
-          {
-            job_id: 'demo_job_1',
-            similarity: 85,
-            execution_time: '2.3s',
-            slot_ms: 145000,
-            creation_time: '2024-01-15T10:30:00Z',
-            status: 'DONE'
-          }
-        ],
-        patterns: [
-          'This query pattern has been executed 12 times in the last 30 days',
-          'Average execution time: 2.1 seconds',
-          'Peak usage during 10-11 AM'
-        ]
-      });
+      console.error('Error finding job ID:', error);
+      return null;
+    }
+  };
+
+  const analyzeByJobId = async (targetJobId) => {
+    setLoading(prev => ({ ...prev, details: true }));
+    
+    try {
+      console.log('=== MANUAL ANALYSIS: FETCHING QUERY DETAILS ===');
+      console.log('Target Job ID:', targetJobId);
+      
+      const response = await axios.post(`${API_BASE}/query-details`, { job_id: targetJobId });
+      
+      console.log('=== MANUAL ANALYSIS: BACKEND RESPONSE ===', response.data);
+      console.log('Execution plan length:', response.data.execution_plan?.length || 0);
+      console.log('Has execution plan summary:', !!response.data.execution_plan_summary);
+      console.log('Performance insights available:', !!response.data.performance_insights);
+      console.log('Debug info:', response.data.debug_info);
+      
+      // Validate execution plan data
+      if (response.data.execution_plan && response.data.execution_plan.length > 0) {
+        console.log('✅ EXECUTION PLAN AVAILABLE for optimization');
+        console.log('First execution stage:', response.data.execution_plan[0]);
+      } else {
+        console.log('⚠️ WARNING: No execution plan data available');
+      }
+      
+      setQueryDetails(response.data);
+      setActiveTab('overview');
+    } catch (error) {
+      console.error('=== MANUAL ANALYSIS: ERROR FETCHING QUERY DETAILS ===', error);
+      alert('Error fetching query details. The job ID may not exist or may be too old (>180 days).');
+      setQueryDetails(null);
     } finally {
-      setLoading(prev => ({ ...prev, historical: false }));
+      setLoading(prev => ({ ...prev, details: false }));
     }
   };
 
   const analyzeQuery = async () => {
-    if (!queryText.trim()) return;
+    if (analysisMode === 'jobid') {
+      if (!jobId.trim()) {
+        alert('Please enter a valid BigQuery Job ID');
+        return;
+      }
+      await analyzeByJobId(jobId.trim());
+    } else {
+      if (!queryText.trim()) {
+        alert('Please enter a SQL query');
+        return;
+      }
+      
+      // First try to find the job ID for this query
+      const foundJobId = await findJobIdInQuery();
+      
+      if (foundJobId) {
+        console.log('Found matching job ID:', foundJobId);
+        setJobId(foundJobId);
+        await analyzeByJobId(foundJobId);
+      } else {
+        // Use comprehensive manual analysis with DDL extraction
+        setLoading(prev => ({ ...prev, details: true }));
+        try {
+          console.log('=== MANUAL COMPREHENSIVE ANALYSIS START ===');
+          const response = await axios.post(`${API_BASE}/analyze-manual-query`, {
+            query: queryText
+          });
+          
+          console.log('=== MANUAL COMPREHENSIVE ANALYSIS RESPONSE ===', response.data);
+          setQueryDetails(response.data);
+          setActiveTab('overview');
+        } catch (error) {
+          console.error('Error in comprehensive manual analysis:', error);
+          alert('Unable to analyze query. Please check your configuration and try again.');
+        } finally {
+          setLoading(prev => ({ ...prev, details: false }));
+        }
+      }
+    }
+  };
 
-    setLoading(prev => ({ ...prev, analysis: true }));
+  const getOptimizationRecommendations = async () => {
+    if (!queryDetails) return;
     
+    console.log('=== STARTING OPTIMIZATION REQUEST ===');
+    console.log('Query details object:', queryDetails);
+    console.log('Execution plan to send:', queryDetails.execution_plan);
+    console.log('Execution plan summary to send:', queryDetails.execution_plan_summary);
+    console.log('Performance insights to send:', queryDetails.performance_insights);
+    
+    setIsModalOpen(true);
     try {
-      const response = await axios.post(`${API_BASE}/analyze-query-manual`, {
-        query: queryText,
-        project: selectedProject,
-        region: selectedRegion,
-        includeOptimization: true,
-        includeExecutionPlan: true,
-        includePerformanceInsights: true
-      });
+      setLoading(prev => ({ ...prev, recommendations: true }));
       
-      setAnalysis(response.data);
-      setActiveTab('results');
+      const optimizationPayload = {
+        query: queryDetails.query,
+        ddl: queryDetails.ddl || "",
+        execution_plan: queryDetails.execution_plan || [],
+        execution_plan_summary: queryDetails.execution_plan_summary || "",
+        performance_insights: queryDetails.performance_insights || null
+      };
+      
+      console.log('=== SENDING TO OPTIMIZATION ENDPOINT ===');
+      console.log('Payload:', optimizationPayload);
+      
+      const response = await axios.post(`${API_BASE}/optimize`, optimizationPayload);
+      
+      console.log('=== OPTIMIZATION RESPONSE RECEIVED ===');
+      console.log('Response length:', response.data.recommendations?.length || 0);
+      
+      setRecommendations(response.data.recommendations);
     } catch (error) {
-      console.error('Error analyzing query:', error);
+      console.error('=== ERROR IN OPTIMIZATION ===', error);
       
-      // Fallback to basic optimization analysis
-      try {
-        const basicResponse = await axios.post(`${API_BASE}/optimize`, {
-          query: queryText,
-          ddl: ''
-        });
-        
-        setAnalysis({
-          optimization: {
-            recommendations: basicResponse.data.recommendations,
-            source: 'basic'
-          },
-          message: 'Basic analysis completed. Historical execution data not available.'
-        });
-        setActiveTab('results');
-      } catch (fallbackError) {
-        console.error('Fallback analysis also failed:', fallbackError);
-        alert('Unable to analyze query. Please check your configuration and try again.');
+      let errorMessage = "**Error Getting AI Recommendations**\n\n";
+      
+      if (error.response?.data?.recommendations) {
+        setRecommendations(error.response.data.recommendations);
+      } else if (error.response?.data?.details) {
+        errorMessage += `Details: ${error.response.data.details}\n\n`;
+        errorMessage += "**Troubleshooting Steps:**\n";
+        errorMessage += "1. Check that your Gemini API key is configured correctly\n";
+        errorMessage += "2. Verify the backend service is running\n";
+        errorMessage += "3. Check the browser console and backend logs for more details\n";
+        errorMessage += "4. Ensure you have proper permissions for BigQuery and Gemini API";
+        setRecommendations(errorMessage);
+      } else {
+        errorMessage += `Error: ${error.message}\n\n`;
+        errorMessage += "**Common Issues:**\n";
+        errorMessage += "- Backend service not running\n";
+        errorMessage += "- Missing or invalid Gemini API key\n";
+        errorMessage += "- Network connectivity issues\n";
+        errorMessage += "- BigQuery permissions problems";
+        setRecommendations(errorMessage);
       }
     } finally {
-      setLoading(prev => ({ ...prev, analysis: false }));
+      setLoading(prev => ({ ...prev, recommendations: false }));
     }
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
   };
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
-    // You could add a toast notification here
   };
 
   const tabs = [
     { id: 'input', label: 'Query Input', icon: FileText },
-    { id: 'validation', label: 'Validation', icon: CheckCircle },
-    { id: 'historical', label: 'Historical Data', icon: Clock },
-    { id: 'results', label: 'Analysis Results', icon: TrendingUp }
+    { id: 'overview', label: 'Overview', icon: Eye },
+    { id: 'execution', label: 'Execution Plan', icon: BarChart3 },
+    { id: 'optimization', label: 'Optimization', icon: Zap }
   ];
 
   return (
     <div className="manual-query-analyzer">
+      {loading.details && (
+        <div className="analysis-overlay">
+          <div className="analysis-overlay-content">
+            <Loader className="spinning large" size={48} />
+            <h3>
+              {analysisMode === 'jobid' 
+                ? 'Analyzing BigQuery Job...' 
+                : 'Searching for executed queries and analyzing...'}
+            </h3>
+            <p>
+              {analysisMode === 'jobid'
+                ? 'Retrieving execution plans, performance insights, and table schemas'
+                : 'Scanning BigQuery job history and extracting comprehensive analysis data'}
+            </p>
+          </div>
+        </div>
+      )}
       <div className="analyzer-header">
         <div className="header-content">
           <div>
             <h2>Manual Query Analyzer</h2>
-            <p>Paste your BigQuery SQL for comprehensive optimization analysis</p>
+            <p>Paste your BigQuery SQL or Job ID for comprehensive optimization analysis</p>
           </div>
           <div className="analyzer-actions">
             <button 
               className="btn-secondary"
-              onClick={() => setQueryText('')}
-              disabled={!queryText.trim()}
+              onClick={() => {
+                setQueryText('');
+                setJobId('');
+                setQueryDetails(null);
+                setRecommendations('');
+              }}
+              disabled={(!queryText.trim() && !jobId.trim())}
             >
               Clear
             </button>
             <button 
               className="btn-primary"
               onClick={analyzeQuery}
-              disabled={!queryText.trim() || loading.analysis}
+              disabled={(analysisMode === 'query' && !queryText.trim()) || (analysisMode === 'jobid' && !jobId.trim()) || loading.details}
             >
-              {loading.analysis ? <Loader className="spinning" size={16} /> : <Search size={16} />}
-              Analyze Query
+              {loading.details ? (
+                <>
+                  <Loader className="spinning" size={16} />
+                  {analysisMode === 'jobid' ? 'Analyzing Job...' : 'Analyzing Query...'}
+                </>
+              ) : (
+                <>
+                  <Search size={16} />
+                  Analyze {analysisMode === 'jobid' ? 'Job' : 'Query'}
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -250,32 +299,58 @@ const ManualQueryAnalyzer = () => {
         <div className="tab-content">
           {activeTab === 'input' && (
             <div className="input-section">
-              <div className="query-input-container">
-                <div className="input-header">
-                  <h3>SQL Query Input</h3>
-                  <div className="input-actions">
-                    <button
-                      className="btn-secondary small"
-                      onClick={validateQuery}
-                      disabled={!queryText.trim() || loading.validation}
-                    >
-                      {loading.validation ? <Loader className="spinning" size={14} /> : <Play size={14} />}
-                      Validate
-                    </button>
-                    <button
-                      className="btn-secondary small"
-                      onClick={searchHistoricalData}
-                      disabled={!queryText.trim() || loading.historical}
-                    >
-                      {loading.historical ? <Loader className="spinning" size={14} /> : <Database size={14} />}
-                      Search History
-                    </button>
+              <div className="analysis-mode-selector">
+                <h3>Analysis Mode</h3>
+                <div className="mode-options">
+                  <label className={`mode-option ${analysisMode === 'query' ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      value="query"
+                      checked={analysisMode === 'query'}
+                      onChange={(e) => setAnalysisMode(e.target.value)}
+                    />
+                    <span>Analyze by SQL Query</span>
+                  </label>
+                  <label className={`mode-option ${analysisMode === 'jobid' ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      value="jobid"
+                      checked={analysisMode === 'jobid'}
+                      onChange={(e) => setAnalysisMode(e.target.value)}
+                    />
+                    <span>Analyze by Job ID</span>
+                  </label>
+                </div>
+              </div>
+
+              {analysisMode === 'jobid' ? (
+                <div className="jobid-input-container">
+                  <div className="input-header">
+                    <h3>BigQuery Job ID Input</h3>
+                  </div>
+                  
+                  <input
+                    type="text"
+                    className="jobid-input"
+                    placeholder="Enter BigQuery Job ID (e.g., job_1234567890)"
+                    value={jobId}
+                    onChange={(e) => setJobId(e.target.value)}
+                  />
+                  
+                  <div className="input-note">
+                    <AlertCircle size={16} />
+                    <p><strong>Note:</strong> The job must have been executed within the last 180 days and completed successfully for detailed analysis.</p>
                   </div>
                 </div>
+              ) : (
+                <div className="query-input-container">
+                  <div className="input-header">
+                    <h3>SQL Query Input</h3>
+                  </div>
                 
-                <textarea
-                  className="query-textarea"
-                  placeholder="Paste your BigQuery SQL here...
+                  <textarea
+                    className="query-textarea"
+                    placeholder="Paste your BigQuery SQL here...
 
 Example:
 SELECT 
@@ -287,214 +362,274 @@ WHERE order_date >= '2024-01-01'
 GROUP BY customer_id
 ORDER BY total_amount DESC
 LIMIT 100"
-                  value={queryText}
-                  onChange={(e) => setQueryText(e.target.value)}
-                  rows={15}
-                />
-                
-                <div className="input-footer">
-                  <div className="query-stats">
-                    <span>Characters: {queryText.length}</span>
-                    <span>Lines: {queryText.split('\n').length}</span>
+                    value={queryText}
+                    onChange={(e) => setQueryText(e.target.value)}
+                    rows={15}
+                  />
+                  
+                  <div className="input-note">
+                    <AlertCircle size={16} />
+                    <p><strong>Best Results:</strong> For comprehensive analysis with execution plans and performance insights, ensure this query has been executed recently in BigQuery.</p>
                   </div>
-                  <button
-                    className="btn-link"
-                    onClick={() => copyToClipboard(queryText)}
-                    disabled={!queryText.trim()}
-                  >
-                    <Copy size={14} />
-                    Copy
-                  </button>
+                
+                  <div className="input-footer">
+                    <div className="query-stats">
+                      <span>Characters: {queryText.length}</span>
+                      <span>Lines: {queryText.split('\n').length}</span>
+                    </div>
+                    <button
+                      className="btn-link"
+                      onClick={() => copyToClipboard(queryText)}
+                      disabled={!queryText.trim()}
+                    >
+                      <Copy size={14} />
+                      Copy
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="quick-tips">
-                <h4>💡 Quick Tips</h4>
+                <h4>💡 Analysis Tips</h4>
                 <ul>
-                  <li>Use fully qualified table names (project.dataset.table)</li>
-                  <li>Include WHERE clauses to limit data scanning</li>
-                  <li>Specify column names instead of SELECT *</li>
-                  <li>Consider adding LIMIT for testing queries</li>
+                  {analysisMode === 'jobid' ? (
+                    <>
+                      <li>Job ID can be found in BigQuery Console under "Job History"</li>
+                      <li>Jobs older than 180 days are not available for analysis</li>
+                      <li>Only successfully completed QUERY jobs provide full insights</li>
+                      <li>Format: job_1234567890abcdef or just the numeric portion</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>Use fully qualified table names (project.dataset.table)</li>
+                      <li>For best results, execute the query in BigQuery first</li>
+                      <li>Recent executions provide execution plans and performance data</li>
+                      <li>Unexecuted queries receive basic structural optimization only</li>
+                    </>
+                  )}
                 </ul>
               </div>
             </div>
           )}
 
-          {activeTab === 'validation' && (
-            <div className="validation-section">
-              {validationResult ? (
-                <div className="validation-results">
-                  <div className={`validation-status ${validationResult.isValid ? 'valid' : 'invalid'}`}>
-                    {validationResult.isValid ? (
-                      <>
-                        <CheckCircle size={20} />
-                        Query syntax appears valid
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle size={20} />
-                        Query has validation issues
-                      </>
-                    )}
-                  </div>
-
-                  {validationResult.warnings.length > 0 && (
-                    <div className="validation-warnings">
-                      <h4>⚠️ Warnings</h4>
-                      <ul>
-                        {validationResult.warnings.map((warning, index) => (
-                          <li key={index}>{warning}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {validationResult.suggestions.length > 0 && (
-                    <div className="validation-suggestions">
-                      <h4>💡 Suggestions</h4>
-                      <ul>
-                        {validationResult.suggestions.map((suggestion, index) => (
-                          <li key={index}>{suggestion}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  <div className="complexity-info">
-                    <h4>Query Complexity</h4>
-                    <div className={`complexity-badge ${validationResult.complexity.toLowerCase()}`}>
-                      {validationResult.complexity}
-                    </div>
-                  </div>
-                </div>
-              ) : (
+          {activeTab === 'overview' && (
+            <div className="overview-section">
+              {!queryDetails ? (
                 <div className="empty-state">
-                  <AlertCircle size={48} />
-                  <h3>No validation performed</h3>
-                  <p>Click "Validate" in the Query Input tab to check your SQL syntax</p>
+                  <Eye size={48} />
+                  <h3>No analysis performed</h3>
+                  <p>Use the Query Input tab to analyze a SQL query or Job ID</p>
                 </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'historical' && (
-            <div className="historical-section">
-              {historicalData ? (
-                <div className="historical-results">
-                  <div className="section-header">
-                    <h3>Historical Execution Data</h3>
-                  </div>
-
-                  {historicalData.patterns && (
-                    <div className="patterns-section">
-                      <h4>📊 Usage Patterns</h4>
-                      <ul>
-                        {historicalData.patterns.map((pattern, index) => (
-                          <li key={index}>{pattern}</li>
-                        ))}
-                      </ul>
+              ) : loading.details ? (
+                <div className="loader"></div>
+              ) : (
+                <div className="overview-content">
+                  <div className="query-info">
+                    <div className="query-identifiers">
+                      <div className="query-id-badge">
+                        <Hash size={14} />
+                        <span>Query ID: {getQueryHash(queryDetails?.query)}</span>
+                      </div>
+                      {jobId && (
+                        <div className="job-id-display">
+                          <span className="job-id-label">Job ID:</span>
+                          <code className="job-id-code">{jobId}</code>
+                        </div>
+                      )}
                     </div>
-                  )}
-
-                  {historicalData.similarQueries && (
-                    <div className="similar-queries">
-                      <h4>🔍 Similar Queries</h4>
-                      {historicalData.similarQueries.map((query, index) => (
-                        <div key={index} className="similar-query-item">
-                          <div className="query-meta">
-                            <span className="similarity">
-                              {query.similarity}% similar
-                            </span>
-                            <span className="execution-time">
-                              <Clock size={14} />
-                              {query.execution_time}
-                            </span>
-                            <span className="slot-usage">
-                              <TrendingUp size={14} />
-                              {query.slot_ms.toLocaleString()} slot ms
-                            </span>
+                    
+                    {queryDetails.analysis_mode !== 'basic' && queryDetails.analysis_mode !== 'comprehensive_manual' && (
+                      <div className="performance-summary">
+                        <h4>Query Performance Summary</h4>
+                        <div className="summary-grid">
+                          <div className="summary-item">
+                            <span className="summary-label">Analysis Type</span>
+                            <span className="summary-value">{queryDetails.analysis_mode === 'basic' ? 'Basic Structure' : 'Full Execution Data'}</span>
                           </div>
-                          <div className="query-details">
-                            <span>Job ID: {query.job_id}</span>
-                            <span>Status: {query.status}</span>
-                            <span>{new Date(query.creation_time).toLocaleDateString()}</span>
+                          {queryDetails.total_slot_ms && (
+                            <div className="summary-item">
+                              <span className="summary-label">Slot Milliseconds</span>
+                              <span className="summary-value">{queryDetails.total_slot_ms.toLocaleString()}</span>
+                            </div>
+                          )}
+                          {queryDetails.duration_seconds && (
+                            <div className="summary-item">
+                              <span className="summary-label">Duration</span>
+                              <span className="summary-value">{queryDetails.duration_seconds}s</span>
+                            </div>
+                          )}
+                          {queryDetails.total_bytes_processed && (
+                            <div className="summary-item">
+                              <span className="summary-label">Data Processed</span>
+                              <span className="summary-value">{(queryDetails.total_bytes_processed / (1024*1024*1024)).toFixed(2)} GB</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {queryDetails.analysis_mode === 'comprehensive_manual' && (
+                      <div className="comprehensive-analysis-info">
+                        <h4>Comprehensive Analysis Summary</h4>
+                        <div className="summary-grid">
+                          <div className="summary-item">
+                            <span className="summary-label">Analysis Type</span>
+                            <span className="summary-value">Comprehensive Schema Analysis</span>
+                          </div>
+                          <div className="summary-item">
+                            <span className="summary-label">Tables Analyzed</span>
+                            <span className="summary-value">{queryDetails.tables_analyzed || 0}</span>
+                          </div>
+                          <div className="summary-item">
+                            <span className="summary-label">Schema Extraction</span>
+                            <span className="summary-value">{queryDetails.schema_extraction_success || 0} successful</span>
+                          </div>
+                          <div className="summary-item">
+                            <span className="summary-label">DDL Available</span>
+                            <span className="summary-value">{queryDetails.ddl ? 'Yes' : 'No'}</span>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <Database size={48} />
-                  <h3>No historical data loaded</h3>
-                  <p>Click "Search History" in the Query Input tab to find similar queries</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="query-content">
+                    <h4>Query Content</h4>
+                    <pre className="sql-code">{queryDetails.query || 'No query content available'}</pre>
+                    
+                    {queryDetails.analysis_mode === 'basic' && (
+                      <div className="analysis-note">
+                        <AlertCircle size={16} />
+                        <p><strong>Note:</strong> This query was not found in recent BigQuery execution history. Analysis is based on query structure only. For comprehensive analysis with execution plans and performance insights, execute the query in BigQuery first.</p>
+                      </div>
+                    )}
+                    
+                    {queryDetails.analysis_mode === 'comprehensive_manual' && (
+                      <div className="comprehensive-analysis-note">
+                        <Database size={16} />
+                        <p><strong>Comprehensive Analysis:</strong> Table schemas and DDL have been extracted for detailed optimization analysis. While execution plans are not available, this analysis includes full schema context.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
           )}
 
-          {activeTab === 'results' && (
-            <div className="results-section">
-              {analysis ? (
-                <div className="analysis-results">
-                  {analysis.message && (
-                    <div className="analysis-message">
-                      <AlertCircle size={16} />
-                      {analysis.message}
-                    </div>
-                  )}
-
-                  {analysis.optimization && (
-                    <div className="optimization-section">
-                      <div className="section-header">
-                        <h3>🎯 Optimization Recommendations</h3>
-                        <button
-                          className="btn-secondary small"
-                          onClick={() => copyToClipboard(analysis.optimization.recommendations)}
-                        >
-                          <Copy size={14} />
-                          Copy
-                        </button>
-                      </div>
-                      
-                      <div className="recommendations-content">
-                        <ReactMarkdown>{analysis.optimization.recommendations}</ReactMarkdown>
-                      </div>
-                    </div>
-                  )}
-
-                  {analysis.executionPlan && (
-                    <div className="execution-plan-section">
-                      <h3>📋 Execution Plan Analysis</h3>
-                      <div className="execution-plan-content">
-                        {/* Execution plan visualization would go here */}
-                        <p>Execution plan analysis coming soon...</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {analysis.performanceInsights && (
-                    <div className="performance-insights-section">
-                      <h3>⚡ Performance Insights</h3>
-                      <div className="insights-content">
-                        {/* Performance insights would go here */}
-                        <p>Performance insights analysis coming soon...</p>
-                      </div>
-                    </div>
-                  )}
+          {activeTab === 'execution' && (
+            <div className="execution-section">
+              {!queryDetails ? (
+                <div className="empty-state">
+                  <BarChart3 size={48} />
+                  <h3>No analysis performed</h3>
+                  <p>Use the Query Input tab to analyze a SQL query or Job ID</p>
+                </div>
+              ) : queryDetails.analysis_mode === 'basic' ? (
+                <div className="basic-analysis-message">
+                  <AlertCircle size={48} />
+                  <h3>Execution Plan Not Available</h3>
+                  <p>Execution plans are only available for queries that have been executed in BigQuery recently.</p>
+                  <p>To get execution plan analysis:</p>
+                  <ul>
+                    <li>Execute this query in BigQuery Console</li>
+                    <li>Use the Job ID from the execution for analysis</li>
+                    <li>Or wait for the query to appear in expensive queries if it uses significant resources</li>
+                  </ul>
                 </div>
               ) : (
+                <ExecutionPlanViewer 
+                  plan={queryDetails.execution_plan} 
+                  summary={queryDetails.execution_plan_summary} 
+                />
+              )}
+            </div>
+          )}
+
+          {activeTab === 'optimization' && (
+            <div className="optimization-section">
+              {!queryDetails ? (
                 <div className="empty-state">
-                  <TrendingUp size={48} />
-                  <h3>No analysis results</h3>
-                  <p>Click "Analyze Query" to get optimization recommendations</p>
+                  <Zap size={48} />
+                  <h3>No analysis performed</h3>
+                  <p>Use the Query Input tab to analyze a SQL query or Job ID</p>
+                </div>
+              ) : (
+                <div className="optimization-content">
+                  <div className="optimization-header">
+                    <h4>AI-Powered Optimization</h4>
+                    <button
+                      onClick={getOptimizationRecommendations}
+                      disabled={loading.recommendations}
+                      className="optimize-btn"
+                      title="Get AI-powered optimization recommendations"
+                    >
+                      {loading.recommendations ? (
+                        <>
+                          <Loader className="spinning" size={16} />
+                          Generating Recommendations...
+                        </>
+                      ) : (
+                        'Get AI Recommendations'
+                      )}
+                    </button>
+                  </div>
+                  
+                  <div className="analysis-info">
+                    {queryDetails.analysis_mode === 'basic' && (
+                      <div className="analysis-mode-info">
+                        <AlertCircle size={16} />
+                        <p><strong>Basic Analysis Mode:</strong> Recommendations based on query structure only. For comprehensive optimization with execution data, execute the query in BigQuery first.</p>
+                      </div>
+                    )}
+                    
+                    {queryDetails.analysis_mode === 'comprehensive_manual' && (
+                      <div className="analysis-mode-info enhanced">
+                        <Database size={16} />
+                        <p><strong>Comprehensive Schema Analysis Mode:</strong> Recommendations include full table schema analysis and DDL context. While execution data is not available, this provides detailed optimization insights.</p>
+                      </div>
+                    )}
+                    
+                    {queryDetails.analysis_mode !== 'basic' && queryDetails.analysis_mode !== 'comprehensive_manual' && (
+                      <div className="analysis-mode-info enhanced">
+                        <Database size={16} />
+                        <p><strong>Enhanced Analysis Mode:</strong> Recommendations include execution plan analysis and performance insights.</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="recommendations-content">
+                    {recommendations ? (
+                      <div className="recommendations-display">
+                        <ReactMarkdown>{recommendations}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div className="no-recommendations">
+                        <Zap size={48} />
+                        <p>Click "Get AI Recommendations" to analyze this query and receive optimization suggestions</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {queryDetails.ddl && (
+                    <div className="schema-section">
+                      <h5>Referenced Tables Schema</h5>
+                      <pre className="ddl-code">{queryDetails.ddl}</pre>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
         </div>
       </div>
+      
+      {isModalOpen && (
+        <AIRecommendationsModal 
+          recommendations={recommendations}
+          onClose={handleCloseModal}
+          loading={loading.recommendations}
+        />
+      )}
     </div>
   );
 };
