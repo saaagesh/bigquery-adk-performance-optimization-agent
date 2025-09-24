@@ -9,7 +9,7 @@ class Config:
     """Configuration class that loads all settings from environment variables."""
     
     # Server Configuration
-    PORT: int = int(os.getenv("PORT", "8080"))
+    PORT: int = int(os.getenv("PORT", "8082"))
     HOST: str = os.getenv("HOST", "0.0.0.0")
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
     FLASK_ENV: str = os.getenv("FLASK_ENV", "development")
@@ -25,7 +25,7 @@ class Config:
     # Force region-us since that's what works
     BIGQUERY_REGION_FORMAT: str = "region-us"
     DEFAULT_TIME_RANGE_HOURS: int = int(os.getenv("DEFAULT_TIME_RANGE_HOURS", "24"))
-    MAX_QUERY_RESULTS: int = int(os.getenv("MAX_QUERY_RESULTS", "20"))
+    MAX_QUERY_RESULTS: int = int(os.getenv("MAX_QUERY_RESULTS", "10"))
     QUERY_TIMEOUT_SECONDS: int = int(os.getenv("QUERY_TIMEOUT_SECONDS", "300"))
     
     # Performance Configuration

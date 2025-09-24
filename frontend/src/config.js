@@ -5,7 +5,7 @@
 
 class Config {
   // API Configuration
-  static API_BASE_URL = import.meta.env.VITE_REACT_APP_API_BASE_URL || 'http://localhost:8080/api';
+  static API_BASE_URL = import.meta.env.VITE_REACT_APP_API_BASE_URL || 'http://10.139.139.192:8082/api';
   
   // Default Settings
   static DEFAULT_TIME_RANGE = import.meta.env.VITE_REACT_APP_DEFAULT_TIME_RANGE || '24h';

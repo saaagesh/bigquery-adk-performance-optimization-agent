@@ -144,34 +144,8 @@ def get_query_details():
         return jsonify({"error": "job_id is required"}), 400
 
     try:
-        print(f"Attempting to find job {job_id} via list_jobs and then get_job, as per documentation for full statistics.")
-        
-        job = None
-        min_creation_time = datetime.utcnow() - timedelta(days=7)
-        
-        jobs_iterator = bq_client.list_jobs(
-            project=project_id, 
-            all_users=True, 
-            min_creation_time=min_creation_time
-        )
-        
-        found_job_entry = None
-        for j in jobs_iterator:
-            if j.job_id == job_id:
-                found_job_entry = j
-                break
-        
-        if found_job_entry:
-            print(f"Found job entry for {job_id} in list_jobs. Location: {found_job_entry.location}. Now calling get_job for full details.")
-            try:
-                job = bq_client.get_job(found_job_entry.job_id, location=found_job_entry.location)
-            except Exception as get_job_e:
-                print(f"Error calling get_job with location '{found_job_entry.location}': {get_job_e}")
-                print("Falling back to get_job with default location.")
-                job = bq_client.get_job(job_id, location=location or config.BIGQUERY_LOCATION)
-        else:
-            print(f"Job {job_id} not found in recent jobs list, falling back to get_job directly.")
-            job = bq_client.get_job(job_id, location=location or config.BIGQUERY_LOCATION)
+        print(f"Attempting to get job {job_id} directly.")
+        job = bq_client.get_job(job_id, location=location or config.BIGQUERY_LOCATION)
 
         print(f"Fetched job {job_id}. Job type: {job.job_type}, State: {job.state}")
         print(f"Type of job object: {type(job)}")
@@ -581,7 +555,8 @@ def optimize_query():
             performance_insights_text += "\n"
 
         # Create a comprehensive prompt for BigQuery optimization
-        prompt = f"""You are a Google Cloud BigQuery optimization expert. Analyze the provided SQL query, table schemas, execution plan, and performance insights to provide specific, actionable optimization recommendations.
+        prompt_parts = [
+            f"""You are a Google Cloud BigQuery optimization expert. Analyze the provided SQL query, table schemas, execution plan, and performance insights to provide specific, actionable optimization recommendations.
 
 **QUERY TO ANALYZE:**
 ```sql
@@ -618,8 +593,19 @@ List specific performance concerns found in the query{', execution plan' if exec
 #### 3. Cost Optimization
 - Ways to reduce slot usage and data processing
 - Recommendations for reducing bytes billed
+"""
+        ]
 
-{"#### 4. Execution Plan Optimizations\n- Analysis of query stages and bottlenecks\n- Recommendations to improve parallelization\n- Suggestions to reduce data shuffling and spills\n\n" if execution_plan else ""}### Optimized Query
+        if execution_plan:
+            prompt_parts.append("""
+#### 4. Execution Plan Optimizations
+- Analysis of query stages and bottlenecks
+- Recommendations to improve parallelization
+- Suggestions to reduce data shuffling and spills
+""")
+
+        prompt_parts.append(f"""
+### Optimized Query
 ```sql
 -- Provide an optimized version of the query
 -- Include comments explaining the key changes
@@ -642,7 +628,8 @@ Focus specifically on BigQuery best practices including:
 - Leveraging partitioning and clustering
 - Optimizing JOINs and subqueries
 - Using appropriate aggregation strategies
-- Minimizing data movement and shuffling{"\n- Analyzing execution stages for bottlenecks" if execution_plan else ""}"""
+- Minimizing data movement and shuffling""")
+        prompt = "".join(prompt_parts)
 
         print("--- GEMINI API CALL START ---")
         print(f"Gemini Prompt length: {len(prompt)} characters")
