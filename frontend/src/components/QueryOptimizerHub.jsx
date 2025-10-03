@@ -85,6 +85,20 @@ const QueryOptimizerHub = () => {
       ]
     },
     {
+      id: 'etl-interface-search',
+      title: 'ETL Interface Search',
+      description: 'Search for queries by ETL Interface Code from the last 7 days',
+      icon: Database,
+      color: '#28a745',
+      route: '/etl-interface-search',
+      features: [
+        'Filter by ETL Interface Codes',
+        'Multi-select interface codes',
+        'Last 7 days query analysis',
+        'Interface-specific optimization'
+      ]
+    },
+    {
       id: 'guided-workflow',
       title: 'Guided Optimization Workflow',
       description: 'Step-by-step process to systematically optimize your queries',

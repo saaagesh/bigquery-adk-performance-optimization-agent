@@ -104,13 +104,10 @@ body {
 }
 
 .queries-section {
-  width: 40%;
-  min-width: 400px;
+  overflow-y: auto; /* Allow vertical scrolling for query list */
 }
 
 .details-section {
-  width: 60%;
-  flex: 1;
   overflow-y: auto; /* Allow vertical scrolling */
 }
 
@@ -709,9 +706,18 @@ button:disabled {
 
 .queries-container {
   display: grid;
-  grid-template-columns: 380px 1fr;
+  grid-template-columns: 30% 70%;
   gap: 2rem;
   height: calc(100vh - 200px);
+  min-width: 800px; /* Ensure minimum width for proper layout */
+}
+
+/* Tablet responsive layout */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .queries-container {
+    grid-template-columns: 35% 65%;
+    gap: 1.5rem;
+  }
 }
 
 .queries-section, .details-section {

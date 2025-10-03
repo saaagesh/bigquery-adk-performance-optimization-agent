@@ -4,3 +4,4 @@ google-cloud-bigquery==3.17.2
 python-dotenv==1.0.1
 google-adk==1.4.2
 deprecated==1.2.14
+google-generativeai

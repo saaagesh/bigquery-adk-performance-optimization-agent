@@ -1,7 +1,6 @@
 import os
 import uuid
 import json
-from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -68,7 +67,6 @@ def get_expensive_queries():
 
     project_filter = request.args.get('project', 'any_value')
     region_filter = request.args.get('region', 'us')
-    days = int(request.args.get('days', 1))  # Default to 1 day
     
     # Build project filter clause
     project_where_clause = ""
@@ -79,7 +77,7 @@ def get_expensive_queries():
     
     # Use the exact working query structure
     try:
-        debug_messages.append(f"Using exact working query with region-us for last {days} days")
+        debug_messages.append("Using exact working query with region-us")
         
         query = f"""
             SELECT
@@ -95,7 +93,7 @@ def get_expensive_queries():
                 LEFT(query, 200) as query_preview,
                 query
             FROM `region-us.INFORMATION_SCHEMA.JOBS_BY_PROJECT`
-            WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
+            WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
                 AND job_type = 'QUERY'
                 AND total_slot_ms > 0
                 AND query IS NOT NULL
@@ -105,15 +103,6 @@ def get_expensive_queries():
             LIMIT {config.MAX_QUERY_RESULTS};
         """
         
-        print(f"=== EXPENSIVE QUERIES SEARCH ===")
-        print(f"Project Filter: {project_filter}")
-        print(f"Region Filter: {region_filter}")
-        print(f"Days Filter: {days}")
-        print(f"Project Where Clause: {project_where_clause}")
-        print(f"Final SQL Query:")
-        print(query)
-        print("================================")
-        
         debug_messages.append("Executing working query")
         query_job = bq_client.query(query, timeout=config.QUERY_TIMEOUT_SECONDS)
         results = [dict(row) for row in query_job.result()]
@@ -122,8 +111,7 @@ def get_expensive_queries():
         
         return jsonify({
             "queries": results,
-            "days_filtered": days,
-            "debug": f"Successfully found {len(results)} queries using region-us for last {days} days",
+            "debug": f"Successfully found {len(results)} queries using region-us",
             "region_used": "region-us"
         })
         
@@ -143,7 +131,6 @@ def get_query_details():
     """
     Fetches the DDL for tables referenced in a specific BigQuery job.
     """
-    import json
     if not bq_client:
         return jsonify({"error": "BigQuery client not initialized"}), 500
 
@@ -155,31 +142,16 @@ def get_query_details():
         return jsonify({"error": "job_id is required"}), 400
 
     try:
-        print(f"Attempting to get job {job_id} directly.")
         job = bq_client.get_job(job_id, location=location or config.BIGQUERY_LOCATION)
-
         print(f"Fetched job {job_id}. Job type: {job.job_type}, State: {job.state}")
-        print(f"Type of job object: {type(job)}")
 
-        # Detailed logging for debugging performance insights
-        print(f"--- Detailed Job Info for {job_id} ---")
-        job_statistics = getattr(job, 'statistics', None)
-        if job_statistics is not None:
-            print("Found 'statistics' attribute. Logging its content:")
-            try:
-                # The statistics object can be complex, converting to dict helps logging
-                import json
-                stats_dict = getattr(job_statistics, 'to_api_repr', lambda: str(job_statistics))()
-                if isinstance(stats_dict, dict):
-                    print(json.dumps(stats_dict, indent=2))
-                else:
-                    print(stats_dict)
-            except Exception as e:
-                print(f"Could not serialize job.statistics to JSON: {e}. Printing raw object:")
-                print(str(job_statistics))
+        # Log job statistics for debugging performance insights
+        if hasattr(job, 'statistics'):
+            print(f"--- Job Statistics for {job_id} ---")
+            print(job.statistics)
+            print("------------------------------------")
         else:
-            print("No 'statistics' attribute found for job.")
-        print("------------------------------------")
+            print(f"No 'statistics' attribute found for job {job_id}.")
 
         execution_plan = []
         execution_plan_summary = ""
@@ -235,267 +207,43 @@ Provide a summary of the plan, highlight critical stages, and suggest general op
             print(f"No query plan found for job {job_id}.")
 
         performance_insights = None
-        if job.job_type == "QUERY" and job.state == 'DONE':
-            print(f"\n=== PERFORMANCE INSIGHTS RETRIEVAL FOR JOB {job_id} ===")
-            print(f"Job type: {job.job_type}, Job state: {job.state}")
-            print(f"Attempting to fetch performance insights from INFORMATION_SCHEMA...")
-            
-            try:
-                # Query INFORMATION_SCHEMA to get performance insights
-                performance_insights_query = f"""
-                    SELECT
-                        job_id,
-                        query_info.performance_insights
-                    FROM
-                        `region-us.INFORMATION_SCHEMA.JOBS_BY_PROJECT`
-                    WHERE
-                        job_id = '{job_id}'
-                        AND job_type = 'QUERY'
-                        AND state = 'DONE'
-                        AND error_result IS NULL
-                    LIMIT 1
-                """
-                
-                print(f"Executing performance insights query:\n{performance_insights_query}")
-                insights_job = bq_client.query(performance_insights_query)
-                insights_results = list(insights_job.result())
-                
-                print(f"Query executed. Found {len(insights_results)} results.")
-                
-                if insights_results and len(insights_results) > 0:
-                    result_row = insights_results[0]
-                    insights_data = result_row.get('performance_insights')
-                    
-                    print(f"Raw performance insights data type: {type(insights_data)}")
-                    print(f"Performance insights data: {insights_data}")
-                    
-                    if insights_data is not None:
-                        print(f"✅ Performance insights found for job {job_id}! Processing insights data...")
-                        
-                        # Extract performance insights data
-                        performance_insights = {
-                            "available": True,
-                            "stage_performance_standalone_insights": [],
-                            "stage_performance_change_insights": [],
-                            "slot_contention_detected": False,
-                            "insufficient_shuffle_quota_detected": False,
-                            "recommendations": [],
-                            "warnings": [],
-                            "raw_data": str(insights_data)  # Include raw data for debugging
-                        }
-                        
-                        # Process standalone insights
-                        if hasattr(insights_data, 'stage_performance_standalone_insights') and insights_data.stage_performance_standalone_insights:
-                            print(f"Processing {len(insights_data.stage_performance_standalone_insights)} standalone insights...")
-                            for i, insight in enumerate(insights_data.stage_performance_standalone_insights):
-                                print(f"  Standalone insight {i+1}: stage_id={getattr(insight, 'stage_id', 'N/A')}, slot_contention={getattr(insight, 'slot_contention', False)}, insufficient_shuffle_quota={getattr(insight, 'insufficient_shuffle_quota', False)}")
-                                
-                                standalone_insight = {
-                                    "stage_id": getattr(insight, 'stage_id', 'N/A'),
-                                    "slot_contention": getattr(insight, 'slot_contention', False),
-                                    "insufficient_shuffle_quota": getattr(insight, 'insufficient_shuffle_quota', False)
-                                }
-                                performance_insights["stage_performance_standalone_insights"].append(standalone_insight)
-                                
-                                if standalone_insight["slot_contention"]:
-                                    performance_insights["slot_contention_detected"] = True
-                                    rec = f"Stage {standalone_insight['stage_id']}: Consider increasing slot allocation to reduce contention"
-                                    performance_insights["recommendations"].append(rec)
-                                    print(f"  ⚠️  Slot contention detected! Added recommendation: {rec}")
-                                
-                                if standalone_insight["insufficient_shuffle_quota"]:
-                                    performance_insights["insufficient_shuffle_quota_detected"] = True
-                                    rec = f"Stage {standalone_insight['stage_id']}: Insufficient shuffle quota detected, consider optimizing data distribution"
-                                    performance_insights["recommendations"].append(rec)
-                                    print(f"  ⚠️  Insufficient shuffle quota detected! Added recommendation: {rec}")
-                        else:
-                            print("  No standalone insights found.")
-                        
-                        # Process change insights
-                        if hasattr(insights_data, 'stage_performance_change_insights') and insights_data.stage_performance_change_insights:
-                            print(f"Processing {len(insights_data.stage_performance_change_insights)} change insights...")
-                            for i, insight in enumerate(insights_data.stage_performance_change_insights):
-                                change_insight = {
-                                    "stage_id": getattr(insight, 'stage_id', 'N/A')
-                                }
-                                
-                                # Check for input data changes
-                                if hasattr(insight, 'input_data_change') and insight.input_data_change:
-                                    input_change = insight.input_data_change
-                                    diff_pct = getattr(input_change, 'records_read_diff_percentage', None)
-                                    change_insight["input_data_change"] = {
-                                        "records_read_diff_percentage": diff_pct
-                                    }
-                                    
-                                    print(f"  Change insight {i+1}: stage_id={change_insight['stage_id']}, records_read_diff={diff_pct}%")
-                                    
-                                    if diff_pct is not None and abs(diff_pct) > 20:  # Significant change
-                                        warning = f"Stage {change_insight['stage_id']}: Significant change in records read ({diff_pct:+.1f}%)"
-                                        performance_insights["warnings"].append(warning)
-                                        print(f"  ⚠️  Significant data change detected! Added warning: {warning}")
-                                
-                                performance_insights["stage_performance_change_insights"].append(change_insight)
-                        else:
-                            print("  No change insights found.")
-                        
-                        print(f"\n📊 Performance insights summary for job {job_id}:")
-                        print(f"  - Standalone insights: {len(performance_insights['stage_performance_standalone_insights'])}")
-                        print(f"  - Change insights: {len(performance_insights['stage_performance_change_insights'])}")
-                        print(f"  - Recommendations: {len(performance_insights['recommendations'])}")
-                        print(f"  - Warnings: {len(performance_insights['warnings'])}")
-                        print(f"  - Slot contention detected: {performance_insights['slot_contention_detected']}")
-                        print(f"  - Shuffle quota issues: {performance_insights['insufficient_shuffle_quota_detected']}")
-                        
-                    else:
-                        print(f"❌ Performance insights data is None for job {job_id}")
-                        performance_insights = {
-                            "available": False,
-                            "message": "Performance insights data is null"
-                        }
-                        
-                else:
-                    print(f"❌ No results found in INFORMATION_SCHEMA for job {job_id}")
-                    print("This could mean:")
-                    print("  - The job is too old (> 180 days)")
-                    print("  - The job didn't complete successfully")
-                    print("  - The job doesn't have performance insights available")
-                    performance_insights = {
-                        "available": False,
-                        "message": "No performance insights found in INFORMATION_SCHEMA"
-                    }
-                    
-            except Exception as insights_e:
-                print(f"❌ ERROR fetching performance insights from INFORMATION_SCHEMA for job {job_id}:")
-                print(f"   Error type: {type(insights_e).__name__}")
-                print(f"   Error message: {str(insights_e)}")
-                import traceback
-                print(f"   Traceback: {traceback.format_exc()}")
-                performance_insights = {
-                    "available": False,
-                    "error": str(insights_e),
-                    "message": "Error retrieving performance insights"
-                }
-            
-            print(f"=== END PERFORMANCE INSIGHTS RETRIEVAL ===")
-        else:
-            print(f"❌ Job {job_id} is not eligible for performance insights:")
-            print(f"   Job type: {job.job_type} (expected: QUERY)")
-            print(f"   Job state: {getattr(job, 'state', 'unknown')} (expected: DONE)")
+        if job.job_type == "QUERY" and hasattr(job, 'statistics') and hasattr(job.statistics, 'query') and hasattr(job.statistics.query, 'performance_insights') and job.statistics.query.performance_insights:
+            print(f"Performance insights found for job {job_id}.")
+            insights_data = job.statistics.query.performance_insights
             performance_insights = {
-                "available": False,
-                "message": "Performance insights only available for completed QUERY jobs"
+                "slot_ms_diff": getattr(insights_data, 'slot_ms_diff', 'N/A'),
+                "top_resource_contention": [{
+                    "type": c.type_,
+                    "description": c.description
+                } for c in getattr(insights_data, 'top_resource_contention', [])] if getattr(insights_data, 'top_resource_contention', []) else [],
+                "recommendations": getattr(insights_data, 'recommendations', []), # Ensure it's a list
+                "warnings": getattr(insights_data, 'warnings', []) # Ensure it's a list
             }
+        else:
+            print(f"No performance insights found for job {job_id}. (Path: job.statistics.query.performance_insights)")
 
-        # Schema retrieval with fallback mechanisms
         ddl_statements = []
-        tables_to_fetch = []
-        
-        # First, try to get tables from job.referenced_tables
         if job.referenced_tables:
             print(f"Referenced tables found for job {job_id}. Attempting to fetch DDL for {len(job.referenced_tables)} tables.")
             for table_ref in job.referenced_tables:
-                tables_to_fetch.append({
-                    'project': table_ref.project,
-                    'dataset': table_ref.dataset_id,
-                    'table': table_ref.table_id,
-                    'source': 'job_metadata'
-                })
-        else:
-            print(f"No referenced tables found in job metadata for {job_id}. Attempting to parse query for table references.")
-            
-            # Fallback: Parse the SQL query to extract table references
-            if job.query:
-                import re
-                
-                # Remove comments and normalize whitespace
-                query_clean = re.sub(r'/\*.*?\*/', '', job.query, flags=re.DOTALL)
-                query_clean = re.sub(r'--.*?\n', '\n', query_clean)
-                query_clean = re.sub(r'\s+', ' ', query_clean)
-                
-                # Pattern to match table references: project.dataset.table or `project.dataset.table`
-                table_patterns = [
-                    r'FROM\s+`([^`]+)`',  # FROM `project.dataset.table`
-                    r'JOIN\s+`([^`]+)`',  # JOIN `project.dataset.table`
-                    r'FROM\s+([\w\.-]+)',  # FROM project.dataset.table
-                    r'JOIN\s+([\w\.-]+)',  # JOIN project.dataset.table
-                    r'WITH\s+[\w\s]*\s+AS\s*\(\s*SELECT\s+.*?FROM\s+`([^`]+)`',  # CTEs
-                    r'WITH\s+[\w\s]*\s+AS\s*\(\s*SELECT\s+.*?FROM\s+([\w\.-]+)',  # CTEs without backticks
-                ]
-                
-                found_tables = set()
-                for pattern in table_patterns:
-                    matches = re.findall(pattern, query_clean, re.IGNORECASE)
-                    for match in matches:
-                        table_name = match.strip('`').strip()
-                        if '.' in table_name:  # Ensure it looks like a fully qualified table name
-                            found_tables.add(table_name)
-                
-                print(f"Parsed {len(found_tables)} table references from query: {list(found_tables)}")
-                
-                for table_name in found_tables:
-                    parts = table_name.split('.')
-                    if len(parts) >= 3:
-                        tables_to_fetch.append({
-                            'project': parts[0],
-                            'dataset': parts[1],
-                            'table': parts[2],
-                            'source': 'query_parsing'
-                        })
-                    elif len(parts) == 2 and project_id:
-                        # Assume current project if only dataset.table provided
-                        tables_to_fetch.append({
-                            'project': project_id,
-                            'dataset': parts[0],
-                            'table': parts[1],
-                            'source': 'query_parsing_inferred_project'
-                        })
-        
-        # Fetch DDL for all identified tables
-        if tables_to_fetch:
-            print(f"Fetching DDL for {len(tables_to_fetch)} tables from various sources.")
-            for table_info in tables_to_fetch:
                 try:
-                    table_id = f"{table_info['project']}.{table_info['dataset']}.{table_info['table']}"
-                    print(f"Fetching schema for {table_id} (source: {table_info['source']})")
-                    
+                    table_id = f"{table_ref.project}.{table_ref.dataset_id}.{table_ref.table_id}"
                     table = bq_client.get_table(table_id)
                     
                     if table.view_query:
-                        ddl = f"-- View: {table_id} (source: {table_info['source']})\nCREATE OR REPLACE VIEW `{table_id}` AS\n{table.view_query}"
+                        ddl = f"CREATE OR REPLACE VIEW `{table_id}` AS\n{table.view_query}"
                     else:
                         schema_sql = []
                         for field in table.schema:
-                            # Include more detailed field information
-                            field_def = f"  `{field.name}` {field.field_type}"
-                            if field.mode == 'REQUIRED':
-                                field_def += " NOT NULL"
-                            elif field.mode == 'REPEATED':
-                                field_def += " REPEATED"
-                            if field.description:
-                                field_def += f" -- {field.description}"
-                            schema_sql.append(field_def)
-                        
-                        ddl = f"-- Table: {table_id} (source: {table_info['source']})\nCREATE TABLE `{table_id}` (\n" + ",\n".join(schema_sql) + "\n)"
-                        
-                        # Add table metadata if available
-                        if hasattr(table, 'num_rows') and table.num_rows is not None:
-                            ddl += f"\n-- Rows: {table.num_rows:,}"
-                        if hasattr(table, 'num_bytes') and table.num_bytes is not None:
-                            ddl += f"\n-- Size: {table.num_bytes / (1024**3):.2f} GB"
-                        if hasattr(table, 'time_partitioning') and table.time_partitioning:
-                            ddl += f"\n-- Partitioned by: {table.time_partitioning.field or 'ingestion time'}"
-                        if hasattr(table, 'clustering_fields') and table.clustering_fields:
-                            ddl += f"\n-- Clustered by: {', '.join(table.clustering_fields)}"
+                            schema_sql.append(f"  `{field.name}` {field.field_type}")
+                        ddl = f"CREATE TABLE `{table_id}` (\n" + ",\n".join(schema_sql) + "\n)"
                     
                     ddl_statements.append(ddl)
-                    
                 except Exception as e:
-                    error_msg = f"/* ERROR fetching DDL for {table_id} (source: {table_info['source']}): {e} */"
                     print(f"Error fetching DDL for table {table_id}: {e}")
-                    ddl_statements.append(error_msg)
+                    ddl_statements.append(f"/* ERROR fetching DDL for {table_id}: {e} */")
         else:
-            print(f"No tables identified for schema retrieval from job {job_id}. Job type: {job.job_type}")
-            ddl_statements.append("/* No table schemas could be identified from this query */")
+            print(f"No referenced tables found for job {job_id}. DDL not available. Job type: {job.job_type}")
 
         print(f"Sending execution_plan to UI: {json.dumps(execution_plan, indent=2)[:500]}... (truncated)")
         return jsonify({
@@ -520,54 +268,20 @@ def optimize_query():
     data = request.get_json()
     query = data.get('query')
     ddl = data.get('ddl')
-    execution_plan = data.get('execution_plan', [])
-    execution_plan_summary = data.get('execution_plan_summary', '')
-    performance_insights = data.get('performance_insights')
 
     if not query:
         return jsonify({"error": "Query is required"}), 400
 
     print(f"Received query for optimization: {query[:200]}...")
     print(f"Received DDL for optimization: {ddl[:200] if ddl else 'No DDL provided'}...")
-    print(f"Received execution plan stages: {len(execution_plan) if execution_plan else 0}")
-    print(f"Received performance insights: {'Yes' if performance_insights else 'No'}")
 
     # Check if we have the required configuration
     if not config.GEMINI_API_KEY or not model:
         return jsonify({"error": "Gemini API key not configured or model not initialized"}), 500
 
     try:
-        import json
-        # Prepare execution plan section for the prompt
-        execution_plan_text = ""
-        if execution_plan and len(execution_plan) > 0:
-            execution_plan_text = "**EXECUTION PLAN:**\n```json\n" + json.dumps(execution_plan, indent=2) + "\n```\n\n"
-            if execution_plan_summary:
-                execution_plan_text += f"**EXECUTION PLAN SUMMARY:**\n{execution_plan_summary}\n\n"
-        
-        # Prepare performance insights section
-        performance_insights_text = ""
-        if performance_insights:
-            performance_insights_text = "**PERFORMANCE INSIGHTS:**\n"
-            if performance_insights.get('slot_ms_diff'):
-                performance_insights_text += f"- Slot milliseconds difference: {performance_insights['slot_ms_diff']}\n"
-            if performance_insights.get('top_resource_contention'):
-                performance_insights_text += "- Resource contention issues:\n"
-                for contention in performance_insights['top_resource_contention']:
-                    performance_insights_text += f"  - {contention.get('type', 'Unknown')}: {contention.get('description', 'No description')}\n"
-            if performance_insights.get('recommendations'):
-                performance_insights_text += "- BigQuery recommendations:\n"
-                for rec in performance_insights['recommendations']:
-                    performance_insights_text += f"  - {rec}\n"
-            if performance_insights.get('warnings'):
-                performance_insights_text += "- Warnings:\n"
-                for warning in performance_insights['warnings']:
-                    performance_insights_text += f"  - {warning}\n"
-            performance_insights_text += "\n"
-
         # Create a comprehensive prompt for BigQuery optimization
-        prompt_parts = [
-            f"""You are a Google Cloud BigQuery optimization expert. Analyze the provided SQL query, table schemas, execution plan, and performance insights to provide specific, actionable optimization recommendations.
+        prompt = f"""You are a Google Cloud BigQuery optimization expert. Analyze the provided SQL query and table schemas to provide specific, actionable optimization recommendations.
 
 **QUERY TO ANALYZE:**
 ```sql
@@ -579,7 +293,7 @@ def optimize_query():
 {ddl if ddl else "No schema information provided - analysis will be based on query structure only"}
 ```
 
-{execution_plan_text}{performance_insights_text}Please provide your analysis in the following markdown format:
+Please provide your analysis in the following markdown format:
 
 ## BigQuery Optimization Analysis
 
@@ -587,7 +301,7 @@ def optimize_query():
 Briefly describe what this query does and its current approach.
 
 ### Performance Issues Identified
-List specific performance concerns found in the query{', execution plan' if execution_plan else ''}{', and performance insights' if performance_insights else ''}:
+List specific performance concerns found in the query:
 
 ### Optimization Recommendations
 
@@ -604,18 +318,7 @@ List specific performance concerns found in the query{', execution plan' if exec
 #### 3. Cost Optimization
 - Ways to reduce slot usage and data processing
 - Recommendations for reducing bytes billed
-"""
-        ]
 
-        if execution_plan:
-            prompt_parts.append("""
-#### 4. Execution Plan Optimizations
-- Analysis of query stages and bottlenecks
-- Recommendations to improve parallelization
-- Suggestions to reduce data shuffling and spills
-""")
-
-        prompt_parts.append(f"""
 ### Optimized Query
 ```sql
 -- Provide an optimized version of the query
@@ -639,15 +342,10 @@ Focus specifically on BigQuery best practices including:
 - Leveraging partitioning and clustering
 - Optimizing JOINs and subqueries
 - Using appropriate aggregation strategies
-- Minimizing data movement and shuffling""")
-        prompt = "".join(prompt_parts)
+- Minimizing data movement and shuffling"""
 
         print("--- GEMINI API CALL START ---")
-        print(f"Gemini Prompt length: {len(prompt)} characters")
-        print(f"Includes execution plan: {'Yes' if execution_plan else 'No'}")
-        print(f"Includes performance insights: {'Yes' if performance_insights else 'No'}")
-        print(f"Full Gemini Prompt:\n{prompt}")
-        print("--- PROMPT END ---")
+        print(f"Gemini Prompt:\n{prompt}... (truncated)") # Log first 1000 chars of prompt
         
         # Generate content using Gemini
         response = model.generate_content(prompt)
@@ -1619,95 +1317,17 @@ def analyze_query_manual():
         # Generate optimization recommendations if requested
         if include_optimization:
             try:
-                # First, try to extract table schemas from the query
-                ddl_statements = []
+                # Create a temporary request for the optimize endpoint
+                from flask import request as flask_request
+                temp_data = {'query': query_text, 'ddl': ''}
                 
-                # Parse the SQL query to extract table references
-                import re
-                
-                # Remove comments and normalize whitespace
-                query_clean = re.sub(r'/\*.*?\*/', '', query_text, flags=re.DOTALL)
-                query_clean = re.sub(r'--.*?\n', '\n', query_clean)
-                query_clean = re.sub(r'\s+', ' ', query_clean)
-                
-                # Pattern to match table references
-                table_patterns = [
-                    r'FROM\s+`([^`]+)`',  # FROM `project.dataset.table`
-                    r'JOIN\s+`([^`]+)`',  # JOIN `project.dataset.table`
-                    r'FROM\s+([\w\.-]+)',  # FROM project.dataset.table
-                    r'JOIN\s+([\w\.-]+)',  # JOIN project.dataset.table
-                ]
-                
-                found_tables = set()
-                for pattern in table_patterns:
-                    matches = re.findall(pattern, query_clean, re.IGNORECASE)
-                    for match in matches:
-                        table_name = match.strip('`').strip()
-                        if '.' in table_name:  # Ensure it looks like a fully qualified table name
-                            found_tables.add(table_name)
-                
-                print(f"Parsed {len(found_tables)} table references from manual query: {list(found_tables)}")
-                
-                # Fetch DDL for identified tables
-                if found_tables:
-                    for table_name in found_tables:
-                        parts = table_name.split('.')
-                        if len(parts) >= 3:
-                            table_id = table_name
-                        elif len(parts) == 2:
-                            # Assume current project if only dataset.table provided
-                            table_id = f"{project_id or 'current_project'}.{table_name}"
-                        else:
-                            continue
-                            
-                        try:
-                            print(f"Fetching schema for {table_id} (manual query analysis)")
-                            table = bq_client.get_table(table_id)
-                            
-                            if table.view_query:
-                                ddl = f"-- View: {table_id}\nCREATE OR REPLACE VIEW `{table_id}` AS\n{table.view_query}"
-                            else:
-                                schema_sql = []
-                                for field in table.schema:
-                                    field_def = f"  `{field.name}` {field.field_type}"
-                                    if field.mode == 'REQUIRED':
-                                        field_def += " NOT NULL"
-                                    elif field.mode == 'REPEATED':
-                                        field_def += " REPEATED"
-                                    schema_sql.append(field_def)
-                                
-                                ddl = f"-- Table: {table_id}\nCREATE TABLE `{table_id}` (\n" + ",\n".join(schema_sql) + "\n)"
-                                
-                                # Add table metadata if available
-                                if hasattr(table, 'num_rows') and table.num_rows is not None:
-                                    ddl += f"\n-- Rows: {table.num_rows:,}"
-                                if hasattr(table, 'num_bytes') and table.num_bytes is not None:
-                                    ddl += f"\n-- Size: {table.num_bytes / (1024**3):.2f} GB"
-                            
-                            ddl_statements.append(ddl)
-                            
-                        except Exception as e:
-                            error_msg = f"/* ERROR fetching DDL for {table_id}: {e} */"
-                            print(f"Error fetching DDL for table {table_id}: {e}")
-                            ddl_statements.append(error_msg)
-                
-                # Join all DDL statements
-                ddl_text = "\n\n---\n\n".join(ddl_statements) if ddl_statements else ''
-                
-                print(f"Manual query analysis - DDL length: {len(ddl_text)}")
-                
-                # Call optimize function with extracted DDL
+                # Call optimize function directly
                 if config.GEMINI_API_KEY and model:
-                    prompt = f"""You are a Google Cloud BigQuery optimization expert. Analyze the provided SQL query and table schemas to provide specific, actionable optimization recommendations.
+                    prompt = f"""You are a Google Cloud BigQuery optimization expert. Analyze the provided SQL query to provide specific, actionable optimization recommendations.
 
 **QUERY TO ANALYZE:**
 ```sql
 {query_text}
-```
-
-**TABLE SCHEMAS:**
-```sql
-{ddl_text if ddl_text else "No schema information provided - analysis will be based on query structure only"}
 ```
 
 Please provide your analysis in markdown format with specific BigQuery optimization recommendations focusing on:
@@ -1721,8 +1341,7 @@ Please provide your analysis in markdown format with specific BigQuery optimizat
                     if response and response.text:
                         analysis_result['optimization'] = {
                             'recommendations': response.text,
-                            'source': 'gemini_ai_with_schema' if ddl_text else 'gemini_ai_structure_only',
-                            'schema_info': f"Analyzed with {len(ddl_statements)} table schemas" if ddl_statements else "No table schemas available"
+                            'source': 'gemini_ai'
                         }
                     else:
                         analysis_result['optimization'] = {
@@ -1857,130 +1476,6 @@ def search_historical_queries():
         
     except Exception as e:
         print(f"Error searching historical queries: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/etl-interface-codes', methods=['GET'])
-@log_api_call
-def get_etl_interface_codes():
-    """
-    Fetches available ETL interface codes from the ETL interface table.
-    """
-    if not bq_client:
-        return jsonify({"error": "BigQuery client not initialized"}), 500
-
-    try:
-        etl_table = f"{config.ETL_INTERFACE_PROJECT_ID}.{config.ETL_INTERFACE_DATASET}.{config.ETL_INTERFACE_TABLE}"
-        
-        # Query to get distinct interface codes (convert to lowercase for consistency)
-        interface_codes_query = f"""
-            SELECT DISTINCT LOWER(TRIM({config.ETL_INTERFACE_CODE_COLUMN})) as interface_code
-            FROM `{etl_table}`
-            WHERE {config.ETL_INTERFACE_CODE_COLUMN} IS NOT NULL
-            ORDER BY interface_code
-        """
-        
-        print(f"=== ETL INTERFACE CODES QUERY ===")
-        print(f"Table: {etl_table}")
-        print(f"Column: {config.ETL_INTERFACE_CODE_COLUMN}")
-        print(f"Query: {interface_codes_query}")
-        print("=================================")
-        
-        query_job = bq_client.query(interface_codes_query, timeout=config.QUERY_TIMEOUT_SECONDS)
-        results = [dict(row) for row in query_job.result()]
-        
-        return jsonify({
-            "interface_codes": results,
-            "total_count": len(results)
-        })
-        
-    except Exception as e:
-        print(f"Error fetching ETL interface codes: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/api/etl-interface-queries', methods=['POST'])
-@log_api_call
-def get_etl_interface_queries():
-    """
-    Fetches queries filtered by ETL interface codes from the specified number of days.
-    """
-    if not bq_client:
-        return jsonify({"error": "BigQuery client not initialized"}), 500
-
-    data = request.get_json()
-    interface_codes = data.get('interface_codes', [])
-    project_filter = data.get('project', 'any_value')
-    region_filter = data.get('region', 'us')
-    days = data.get('days', 1)  # Default to 1 day
-    
-    if not interface_codes:
-        return jsonify({"error": "At least one interface code is required"}), 400
-
-    # Build project filter clause
-    project_where_clause = ""
-    if project_filter != 'any_value':
-        project_where_clause = f"AND a.project_id = '{project_filter}'"
-    
-    # Build interface codes filter with trim and lowercase
-    interface_codes_lower = [code.strip().lower() for code in interface_codes]
-    interface_codes_str = "', '".join(interface_codes_lower)
-    interface_filter = f"AND LOWER(TRIM(b.value)) IN ('{interface_codes_str}')"
-
-    try:
-        # Use the query structure provided by the user
-        etl_queries_sql = f"""
-            SELECT
-                a.job_id,
-                a.project_id,
-                a.user_email,
-                a.creation_time,
-                a.total_slot_ms,
-                a.total_bytes_processed / POW(10, 9) as gb_processed,
-                TIMESTAMP_DIFF(a.end_time, a.start_time, SECOND) as duration_seconds,
-                a.state,
-                a.error_result.reason as error_reason,
-                LEFT(a.query, 200) as query_preview,
-                a.query,
-                b.value as etl_intf_cd
-            FROM `region-{region_filter}.INFORMATION_SCHEMA.JOBS_BY_PROJECT` a
-            LEFT JOIN UNNEST(a.labels) b ON b.key = 'etl_intf_cd'
-            WHERE a.creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {days} DAY)
-                AND a.job_type = 'QUERY'
-                AND a.total_slot_ms > 0
-                AND a.query IS NOT NULL
-                AND a.query NOT LIKE '%INFORMATION_SCHEMA%'
-                AND a.query NOT LIKE '%ihg-dart-edw-prod%'
-                {project_where_clause}
-                {interface_filter}
-            ORDER BY a.total_slot_ms DESC
-            LIMIT {config.MAX_QUERY_RESULTS}
-        """
-        
-        print(f"=== ETL INTERFACE QUERIES SEARCH ===")
-        print(f"Interface Codes (original): {interface_codes}")
-        print(f"Interface Codes (lowercase): {interface_codes_lower}")
-        print(f"Project Filter: {project_filter}")
-        print(f"Region Filter: {region_filter}")
-        print(f"Days Filter: {days}")
-        print(f"Project Where Clause: {project_where_clause}")
-        print(f"Interface Filter: {interface_filter}")
-        print(f"Final SQL Query:")
-        print(etl_queries_sql)
-        print("===================================")
-        
-        query_job = bq_client.query(etl_queries_sql, timeout=config.QUERY_TIMEOUT_SECONDS)
-        results = [dict(row) for row in query_job.result()]
-        
-        return jsonify({
-            "queries": results,
-            "interface_codes_used": interface_codes,
-            "days_filtered": days,
-            "total_found": len(results),
-            "debug": f"Successfully found {len(results)} queries for interface codes: {', '.join(interface_codes)} in last {days} days"
-        })
-        
-    except Exception as e:
-        print(f"Error fetching ETL interface queries: {e}")
         return jsonify({"error": str(e)}), 500
 
 

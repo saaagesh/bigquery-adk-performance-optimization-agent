@@ -33,6 +33,12 @@ class Config:
     JOB_CONCURRENCY_MAX: int = int(os.getenv("JOB_CONCURRENCY_MAX", "100"))
     CACHE_TTL_SECONDS: int = int(os.getenv("CACHE_TTL_SECONDS", "300"))
     
+    # ETL Interface Configuration
+    ETL_INTERFACE_PROJECT_ID: str = os.getenv("ETL_INTERFACE_PROJECT_ID", "compute-project-473821")
+    ETL_INTERFACE_DATASET: str = os.getenv("ETL_INTERFACE_DATASET", "DB_WRK")
+    ETL_INTERFACE_TABLE: str = os.getenv("ETL_INTERFACE_TABLE", "WRK_ETL_INTF_CD")
+    ETL_INTERFACE_CODE_COLUMN: str = os.getenv("ETL_INTERFACE_CODE_COLUMN", "string_field_0")
+    
     # Region Options for BigQuery INFORMATION_SCHEMA
     @property
     def BIGQUERY_REGION_OPTIONS(self) -> List[str]:

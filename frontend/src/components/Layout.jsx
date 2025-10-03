@@ -20,6 +20,7 @@ const Layout = ({ children }) => {
     { path: '/', label: 'Query Optimizer', icon: Target },
     { path: '/top-queries', label: 'Top Expensive Queries', icon: TrendingUp },
     { path: '/manual-analyzer', label: 'Manual Analyzer', icon: Search },
+    { path: '/etl-interface-search', label: 'ETL Interface Search', icon: Database },
     { path: '/guided-workflow', label: 'Guided Workflow', icon: BookOpen },
     // Legacy items in dropdown or secondary menu
     { path: '/organization', label: 'Organization Overview', icon: BarChart3, legacy: true },

@@ -1,7 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
-import { Zap, Clock, User, ChevronDown, ChevronRight, Database, Eye, BarChart3, Target, Hash } from 'lucide-react';
+import { 
+  Search, 
+  Filter, 
+  Database, 
+  Clock, 
+  User, 
+  ChevronDown, 
+  ChevronRight, 
+  Zap, 
+  Eye, 
+  BarChart3, 
+  Hash,
+  RefreshCw,
+  X
+} from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import FilterControls from './shared/FilterControls';
 import Config from '../config';
@@ -9,30 +23,104 @@ import Config from '../config';
 import AIRecommendationsModal from './AIRecommendationsModal';
 import ExecutionPlanViewer from './ExecutionPlanViewer';
 import PerformanceInsightsViewer from './PerformanceInsightsViewer';
-import './AIRecommendationsModal.css';
-import './ExpensiveQueries.css';
+import './ExpensiveQueries.css'; // Reuse the same styles
 
 const API_BASE = Config.API_BASE_URL;
 
-const ExpensiveQueries = () => {
+const ETLInterfaceSearch = () => {
   const { selectedProject, selectedRegion } = useAppContext();
-  const [expensiveQueries, setExpensiveQueries] = useState([]);
+  
+  // Interface codes and filtering
+  const [availableInterfaceCodes, setAvailableInterfaceCodes] = useState([]);
+  const [selectedInterfaceCodes, setSelectedInterfaceCodes] = useState([]);
+  const [interfaceCodeFilter, setInterfaceCodeFilter] = useState('');
+  const [days, setDays] = useState(1); // Default to 1 day
+  
+  // Query results and details
+  const [filteredQueries, setFilteredQueries] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [queryDetails, setQueryDetails] = useState(null);
   const [recommendations, setRecommendations] = useState('');
   const [debugInfo, setDebugInfo] = useState('');
+  
+  // UI state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [expandedQueries, setExpandedQueries] = useState(new Set());
   const [activeTab, setActiveTab] = useState('overview');
-  const [days, setDays] = useState(1); // Default to 1 day
   
+  // Loading states
+  const [loadingInterfaceCodes, setLoadingInterfaceCodes] = useState(false);
   const [loadingQueries, setLoadingQueries] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
 
   useEffect(() => {
-    fetchExpensiveQueries();
-  }, [selectedProject, selectedRegion, days]);
+    fetchInterfaceCodes();
+  }, []);
+
+  const fetchInterfaceCodes = async () => {
+    try {
+      setLoadingInterfaceCodes(true);
+      const response = await axios.get(`${API_BASE}/etl-interface-codes`);
+      setAvailableInterfaceCodes(response.data.interface_codes || []);
+    } catch (error) {
+      console.error('Error fetching interface codes:', error);
+      setDebugInfo(`Error loading interface codes: ${error.response?.data?.message || error.message}`);
+    } finally {
+      setLoadingInterfaceCodes(false);
+    }
+  };
+
+  const searchQueriesByInterface = async () => {
+    if (selectedInterfaceCodes.length === 0) {
+      alert('Please select at least one interface code');
+      return;
+    }
+
+    try {
+      setLoadingQueries(true);
+      setDebugInfo('');
+      const response = await axios.post(`${API_BASE}/etl-interface-queries`, {
+        interface_codes: selectedInterfaceCodes,
+        project: selectedProject,
+        region: selectedRegion,
+        days: days
+      });
+      
+      if (response.data.debug) {
+        setDebugInfo(response.data.debug);
+      }
+      
+      setFilteredQueries(response.data.queries || []);
+      setSelectedJobId(null);
+      setQueryDetails(null);
+      setRecommendations('');
+    } catch (error) {
+      console.error('Error searching queries:', error);
+      setDebugInfo(`Error: ${error.response?.data?.message || error.message}`);
+      setFilteredQueries([]);
+    } finally {
+      setLoadingQueries(false);
+    }
+  };
+
+  const handleInterfaceCodeToggle = (interfaceCode) => {
+    setSelectedInterfaceCodes(prev => {
+      if (prev.includes(interfaceCode)) {
+        return prev.filter(code => code !== interfaceCode);
+      } else {
+        return [...prev, interfaceCode];
+      }
+    });
+  };
+
+  const handleInterfaceCodeSelection = (updatedCodes) => {
+    setSelectedInterfaceCodes(updatedCodes);
+  };
+
+  const clearAllInterfaceCodes = () => {
+    setSelectedInterfaceCodes([]);
+  };
 
   const toggleQueryExpansion = (jobId, event) => {
     event.stopPropagation();
@@ -47,44 +135,16 @@ const ExpensiveQueries = () => {
 
   const getQueryHash = (query) => {
     if (!query) return 'N/A';
-    // Simple hash for query identification
     let hash = 0;
     for (let i = 0; i < query.length; i++) {
       const char = query.charCodeAt(i);
       hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+      hash = hash & hash;
     }
     return Math.abs(hash).toString(16).substring(0, 8).toUpperCase();
   };
 
-
-
-  const fetchExpensiveQueries = async () => {
-    try {
-      setLoadingQueries(true);
-      setDebugInfo('');
-      const response = await axios.get(`${API_BASE}/expensive-queries?project=${selectedProject}&region=${selectedRegion}&days=${days}`);
-      
-      if (response.data.debug) {
-        setDebugInfo(response.data.debug);
-      }
-      
-      setExpensiveQueries(response.data.queries || response.data || []);
-      setSelectedJobId(null);
-      setQueryDetails(null);
-      setRecommendations('');
-    } catch (error) {
-      console.error('Error fetching queries:', error);
-      setDebugInfo(`Error: ${error.response?.data?.message || error.message}`);
-      setExpensiveQueries([]);
-    } finally {
-      setLoadingQueries(false);
-    }
-  };
-
   const handleQuerySelect = async (jobId) => {
-    console.log('=== QUERY SELECTED ===', jobId);
-    
     if (selectedJobId === jobId) {
       setSelectedJobId(null);
       setQueryDetails(null);
@@ -99,13 +159,10 @@ const ExpensiveQueries = () => {
     
     try {
       setLoadingDetails(true);
-      console.log('=== FETCHING QUERY DETAILS ===');
       const response = await axios.post(`${API_BASE}/query-details`, { job_id: jobId });
-      console.log('=== BACKEND RESPONSE ===', response.data);
-      console.log('=== SELECTED QUERY FROM LIST ===', expensiveQueries.find(q => q.job_id === jobId));
       setQueryDetails(response.data);
     } catch (error) {
-      console.error('=== ERROR FETCHING QUERY DETAILS ===', error);
+      console.error('Error fetching query details:', error);
       alert('Error fetching query details. Check the backend logs.');
       setQueryDetails(null);
     } finally {
@@ -130,11 +187,9 @@ const ExpensiveQueries = () => {
     } catch (error) {
       console.error('Error getting recommendations:', error);
       
-      // Set error message as recommendations to show in modal
       let errorMessage = "**Error Getting AI Recommendations**\n\n";
       
       if (error.response?.data?.recommendations) {
-        // Backend provided a formatted error message
         setRecommendations(error.response.data.recommendations);
       } else if (error.response?.data?.details) {
         errorMessage += `Details: ${error.response.data.details}\n\n`;
@@ -167,24 +222,73 @@ const ExpensiveQueries = () => {
       <div className="page-header">
         <div className="header-content">
           <div>
-            <h2>Expensive Queries</h2>
-            <p>Identify and optimize your most resource-intensive queries</p>
+            <h2>ETL Interface Query Search</h2>
+            <p>Search for queries by ETL Interface Code</p>
           </div>
         </div>
         <FilterControls 
-          onRefresh={fetchExpensiveQueries}
-          loading={loadingQueries}
+          onRefresh={() => {
+            fetchInterfaceCodes();
+            if (selectedInterfaceCodes.length > 0) {
+              searchQueriesByInterface();
+            }
+          }}
+          loading={loadingInterfaceCodes || loadingQueries}
           showDaysFilter={true}
           days={days}
           onDaysChange={setDays}
+          showInterfaceFilter={true}
+          availableInterfaceCodes={availableInterfaceCodes}
+          selectedInterfaceCodes={selectedInterfaceCodes}
+          interfaceCodeFilter={interfaceCodeFilter}
+          onInterfaceCodeFilterChange={setInterfaceCodeFilter}
+          onInterfaceCodeToggle={handleInterfaceCodeToggle}
+          onClearAllInterfaceCodes={clearAllInterfaceCodes}
+          loadingInterfaceCodes={loadingInterfaceCodes}
         />
+      </div>
+
+      {/* Search Action Section */}
+      <div style={{ 
+        marginBottom: '20px', 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        padding: '10px 0'
+      }}>
+        <div style={{ fontSize: '14px', color: '#666' }}>
+          {selectedInterfaceCodes.length > 0 ? (
+            <>Selected {selectedInterfaceCodes.length} interface code{selectedInterfaceCodes.length !== 1 ? 's' : ''} for last {days} day{days !== 1 ? 's' : ''}</>
+          ) : (
+            <>Select interface codes from the filter above to search queries</>
+          )}
+        </div>
+        <button
+          onClick={searchQueriesByInterface}
+          disabled={selectedInterfaceCodes.length === 0 || loadingQueries}
+          style={{
+            padding: '8px 20px',
+            background: selectedInterfaceCodes.length === 0 ? '#ccc' : '#007bff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: selectedInterfaceCodes.length === 0 ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '14px'
+          }}
+        >
+          {loadingQueries ? <RefreshCw size={16} className="spinning" /> : <Search size={16} />}
+          {loadingQueries ? 'Searching...' : 'Search Queries'}
+        </button>
       </div>
 
       <div className="queries-container">
         <div className="queries-section">
           <div className="section-header">
-            <h3>Top 10 Most Expensive Queries</h3>
-            <span className="query-count">{expensiveQueries.length} queries</span>
+            <h3>Query Results</h3>
+            <span className="query-count">{filteredQueries.length} queries</span>
           </div>
           
           {debugInfo && (
@@ -196,14 +300,14 @@ const ExpensiveQueries = () => {
           <div className="queries-list">
             {loadingQueries ? (
               <div className="loader"></div>
-            ) : expensiveQueries.length === 0 ? (
+            ) : filteredQueries.length === 0 ? (
               <div className="empty-state">
-                <Zap size={48} />
-                <h3>No expensive queries found</h3>
-                <p>Try adjusting the time range or check a different project. Queries may not be available if there's no recent activity.</p>
+                <Search size={48} />
+                <h3>No queries found</h3>
+                <p>Select interface codes above and click "Search" to find related queries from the last {days} day{days !== 1 ? 's' : ''}.</p>
               </div>
             ) : (
-              expensiveQueries.map((query, index) => {
+              filteredQueries.map((query, index) => {
                 const isExpanded = expandedQueries.has(query.job_id);
                 const queryHash = getQueryHash(query.query || query.query_preview);
                 
@@ -216,62 +320,69 @@ const ExpensiveQueries = () => {
                       className="query-header"
                       onClick={() => handleQuerySelect(query.job_id)}
                     >
-                      <div className="query-rank">
-                        <span className="rank-number">#{index + 1}</span>
-                        <Zap className="expense-icon" />
-                      </div>
-                      
-                      <div className="query-identifier">
-                        <div className="query-hash">
-                          <Hash size={14} />
-                          <span title="Query Hash: A unique identifier generated from the query structure to group similar queries">Query Hash: {queryHash}</span>
+                      <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="query-rank">
+                            <span className="rank-number">#{index + 1}</span>
+                            <Database className="expense-icon" size={14} />
+                          </div>
+                          
+                          <div className="query-identifier">
+                            <div className="query-hash">
+                              <Hash size={12} />
+                              <span title="Query Hash: A unique identifier generated from the query structure to group similar queries">Hash: {queryHash}</span>
+                            </div>
+                            <div className="job-id">
+                              <span className="job-id-label">Interface:</span>
+                              <span className="job-id-value" style={{ background: '#28a745', color: 'white', padding: '1px 4px', borderRadius: '2px', fontSize: '10px' }} title={query.etl_intf_cd}>
+                                {query.etl_intf_cd}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="job-id">
-                          <span className="job-id-label">Job ID:</span>
-                          <span className="job-id-value">{query.job_id}</span>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                          <div className="query-cost">
+                            <span className="slot-ms">{(query.total_slot_ms / 1000).toFixed(0)}k</span>
+                            <span className="slot-label">slot ms</span>
+                          </div>
+                          
+                          <button 
+                            className="expand-toggle"
+                            onClick={(e) => toggleQueryExpansion(query.job_id, e)}
+                            title={isExpanded ? 'Collapse details' : 'Expand details'}
+                            style={{ position: 'static', padding: '2px', minWidth: 'auto' }}
+                          >
+                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          </button>
                         </div>
                       </div>
-                      
-                      <div className="query-cost">
-                        <span className="slot-ms">{query.total_slot_ms.toLocaleString()}</span>
-                        <span className="slot-label">slot ms</span>
-                      </div>
-                      
-                      <button 
-                        className="expand-toggle"
-                        onClick={(e) => toggleQueryExpansion(query.job_id, e)}
-                        title={isExpanded ? 'Collapse details' : 'Expand details'}
-                      >
-                        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                      </button>
                     </div>
                     
                     <div className="query-meta">
-                      <div className="query-user">
-                        <User size={14} />
-                        <span>{query.user_email}</span>
+                      <div className="query-user" title={query.user_email}>
+                        <User size={12} />
+                        <span>{query.user_email.split('@')[0]}</span>
                       </div>
                       <div className="query-time">
-                        <Clock size={14} />
-                        <span>{new Date(query.creation_time).toLocaleDateString()}</span>
-                      </div>
-                      <div className="query-project">
-                        <Database size={14} />
-                        <span>{query.project_id}</span>
+                        <Clock size={12} />
+                        <span>{new Date(query.creation_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                       </div>
                       {query.duration_seconds && (
                         <div className="query-duration">
-                          <span>Duration: {query.duration_seconds}s</span>
+                          <span>{query.duration_seconds}s</span>
                         </div>
                       )}
                     </div>
                     
                     <div className="query-preview">
                       <div className="preview-header">
-                        <span className="preview-label">Query Preview:</span>
-                        <span className="expand-hint">Click {isExpanded ? 'chevron to collapse' : 'chevron to expand'} for full SQL</span>
+                        <span className="preview-label">Preview:</span>
+                        <span className="expand-hint" style={{ fontSize: '10px' }}>{isExpanded ? 'Collapse' : 'Expand'}</span>
                       </div>
-                      <code>{query.query_preview || query.query?.substring(0, Config.MAX_QUERY_PREVIEW_LENGTH) || 'No preview available'}</code>
+                      <code title={query.query_preview || query.query?.substring(0, Config.MAX_QUERY_PREVIEW_LENGTH) || 'No preview available'}>
+                        {query.query_preview || query.query?.substring(0, 150) || 'No preview available'}
+                      </code>
                     </div>
                     
                     {isExpanded && (
@@ -296,21 +407,25 @@ const ExpensiveQueries = () => {
                         
                         <div className="expanded-metrics">
                           <div className="metric">
-                            <span className="metric-label">Bytes Processed:</span>
-                            <span className="metric-value">{query.total_bytes_processed ? (query.total_bytes_processed / (1024*1024*1024)).toFixed(2) + ' GB' : 'N/A'}</span>
+                            <span className="metric-label">Interface:</span>
+                            <span className="metric-value" style={{ background: '#28a745', color: 'white', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>
+                              {query.etl_intf_cd}
+                            </span>
                           </div>
                           <div className="metric">
-                            <span className="metric-label">Bytes Billed:</span>
-                            <span className="metric-value">{query.total_bytes_billed ? (query.total_bytes_billed / (1024*1024*1024)).toFixed(2) + ' GB' : 'N/A'}</span>
-                          </div>
-                          <div className="metric">
-                            <span className="metric-label">Job Type:</span>
-                            <span className="metric-value">{query.job_type || 'N/A'}</span>
+                            <span className="metric-label">Data:</span>
+                            <span className="metric-value">{query.gb_processed ? query.gb_processed.toFixed(2) + ' GB' : 'N/A'}</span>
                           </div>
                           <div className="metric">
                             <span className="metric-label">State:</span>
                             <span className="metric-value">{query.state || 'N/A'}</span>
                           </div>
+                          {query.error_reason && (
+                            <div className="metric">
+                              <span className="metric-label">Error:</span>
+                              <span className="metric-value" style={{ color: '#dc3545' }}>{query.error_reason}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -324,9 +439,9 @@ const ExpensiveQueries = () => {
         <div className="details-section">
           {!selectedJobId ? (
             <div className="placeholder">
-              <Zap size={48} />
+              <Database size={48} />
               <h3>Select a query to analyze</h3>
-              <p>Choose a query from the list to see detailed analysis and optimization recommendations</p>
+              <p>Choose a query from the results to see detailed analysis and optimization recommendations</p>
             </div>
           ) : loadingDetails ? (
             <div className="loader"></div>
@@ -338,7 +453,7 @@ const ExpensiveQueries = () => {
                   <div className="query-identifiers">
                     <div className="query-id-badge">
                       <Hash size={14} />
-                      <span>Query Hash: {getQueryHash(queryDetails?.query || expensiveQueries.find(q => q.job_id === selectedJobId)?.query)}</span>
+                      <span>Query Hash: {getQueryHash(queryDetails?.query || filteredQueries.find(q => q.job_id === selectedJobId)?.query)}</span>
                     </div>
                   </div>
                 </div>
@@ -373,8 +488,6 @@ const ExpensiveQueries = () => {
               </div>
               
               <div className="tab-content">
-                {console.log('Current activeTab:', activeTab)}
-                {console.log('queryDetails object before tab content rendering:', queryDetails)}
                 {activeTab === 'overview' && (
                   <div className="overview-tab">
                     <div className="performance-summary">
@@ -393,8 +506,10 @@ const ExpensiveQueries = () => {
                           <span className="summary-value">{queryDetails.total_bytes_processed ? (queryDetails.total_bytes_processed / (1024*1024*1024)).toFixed(2) + ' GB' : 'N/A'}</span>
                         </div>
                         <div className="summary-item">
-                          <span className="summary-label">Optimization Potential</span>
-                          <span className="summary-value optimization-potential">20%</span>
+                          <span className="summary-label">ETL Interface</span>
+                          <span className="summary-value" style={{ background: '#28a745', color: 'white', padding: '4px 8px', borderRadius: '4px' }}>
+                            {filteredQueries.find(q => q.job_id === selectedJobId)?.etl_intf_cd || 'N/A'}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -402,12 +517,8 @@ const ExpensiveQueries = () => {
                     <div className="quick-insights">
                       <h4>Quick Insights</h4>
                       <div className="insight-item">
-                        <span className="insight-label">Query complexity:</span>
-                        <span className="insight-value">Complex</span>
-                      </div>
-                      <div className="insight-item">
-                        <span className="insight-label">Resource risk level:</span>
-                        <span className="insight-value">Low</span>
+                        <span className="insight-label">ETL Interface Code:</span>
+                        <span className="insight-value">{filteredQueries.find(q => q.job_id === selectedJobId)?.etl_intf_cd || 'N/A'}</span>
                       </div>
                       <div className="insight-item">
                         <span className="insight-label">Executed by:</span>
@@ -417,42 +528,30 @@ const ExpensiveQueries = () => {
                         <span className="insight-label">Project:</span>
                         <span className="insight-value">{queryDetails.project_id || selectedProject}</span>
                       </div>
+                      <div className="insight-item">
+                        <span className="insight-label">State:</span>
+                        <span className="insight-value">{filteredQueries.find(q => q.job_id === selectedJobId)?.state || 'N/A'}</span>
+                      </div>
                     </div>
                     
                     <div className="query-content">
                       <h4>Query Content</h4>
-                      <div style={{background: '#f0f0f0', padding: '10px', marginBottom: '10px', fontSize: '12px'}}>
-                        <strong>Debug Info:</strong><br/>
-                        queryDetails.query: {queryDetails?.query ? 'YES' : 'NO'}<br/>
-                        Selected Job ID: {selectedJobId}<br/>
-                        Query from list: {expensiveQueries.find(q => q.job_id === selectedJobId)?.query ? 'YES' : 'NO'}<br/>
-                        Query preview from list: {expensiveQueries.find(q => q.job_id === selectedJobId)?.query_preview ? 'YES' : 'NO'}
-                      </div>
                       <pre className="sql-code">
                         {(() => {
-                          console.log('=== RENDERING QUERY CONTENT ===');
-                          console.log('queryDetails:', queryDetails);
-                          console.log('selectedJobId:', selectedJobId);
-                          
-                          const selectedQuery = expensiveQueries.find(q => q.job_id === selectedJobId);
-                          console.log('selectedQuery:', selectedQuery);
+                          const selectedQuery = filteredQueries.find(q => q.job_id === selectedJobId);
                           
                           if (queryDetails?.query) {
-                            console.log('Using queryDetails.query');
                             return queryDetails.query;
                           }
                           
                           if (selectedQuery?.query) {
-                            console.log('Using selectedQuery.query');
                             return selectedQuery.query;
                           }
                           
                           if (selectedQuery?.query_preview) {
-                            console.log('Using selectedQuery.query_preview');
                             return selectedQuery.query_preview;
                           }
                           
-                          console.log('No query content found');
                           return 'No query content available';
                         })()}
                       </pre>
@@ -468,8 +567,6 @@ const ExpensiveQueries = () => {
                 
                 {activeTab === 'execution' && (
                   <div className="execution-tab">
-                    {console.log('Rendering ExecutionPlanViewer. queryDetails:', queryDetails)}
-                    {console.log('Plan prop to ExecutionPlanViewer:', queryDetails?.execution_plan)}
                     <ExecutionPlanViewer plan={queryDetails.execution_plan} summary={queryDetails.execution_plan_summary} />
                   </div>
                 )}
@@ -519,6 +616,7 @@ const ExpensiveQueries = () => {
           )}
         </div>
       </div>
+      
       {isModalOpen && (
         <AIRecommendationsModal 
           recommendations={recommendations}
@@ -530,4 +628,4 @@ const ExpensiveQueries = () => {
   );
 };
 
-export default ExpensiveQueries;
+export default ETLInterfaceSearch;

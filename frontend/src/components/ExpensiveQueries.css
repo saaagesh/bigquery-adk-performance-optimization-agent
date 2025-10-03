@@ -843,3 +843,210 @@
 .stage-insight-item li, .change-insight-item li {
   margin-bottom: 4px;
 }
+
+/* Spinning animation for loading icons */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+/* Interface filter specific styles */
+.interface-filter-group {
+  position: relative;
+}
+
+.interface-filter-group .filter-dropdown {
+  min-width: 250px;
+}
+
+.interface-filter-group input[type="text"] {
+  padding-left: 30px !important;
+}
+
+/* Ensure dropdowns appear above other content */
+.interface-filter-group > div > div {
+  z-index: 1000;
+}
+
+@media (max-width: 1200px) {
+  .filter-row {
+    flex-wrap: wrap;
+  }
+  
+  .interface-filter-group {
+    width: 100%;
+    margin-top: 10px;
+  }
+}
+
+/* Compact layout for 30% queries section */
+.queries-section .query-header {
+  padding: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.queries-section .query-identifier {
+  margin: 0;
+  width: 100%;
+  gap: 6px;
+}
+
+.queries-section .query-hash {
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.queries-section .query-hash span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.queries-section .job-id {
+  font-size: 10px;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.queries-section .job-id-value {
+  font-size: 10px;
+  padding: 1px 4px;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queries-section .query-cost {
+  align-self: flex-end;
+  text-align: right;
+  min-width: 80px;
+}
+
+.queries-section .slot-ms {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.queries-section .slot-label {
+  font-size: 10px;
+}
+
+.queries-section .query-meta {
+  padding: 8px 12px 12px 12px;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+
+.queries-section .query-meta > div {
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.queries-section .query-meta span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.queries-section .query-preview {
+  padding: 8px 12px;
+  font-size: 11px;
+}
+
+.queries-section .query-preview code {
+  font-size: 10px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.queries-section .expand-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px;
+  min-width: auto;
+}
+
+.queries-section .query-rank {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.queries-section .rank-number {
+  font-weight: 600;
+  color: #1a73e8;
+  min-width: 20px;
+}
+
+/* Header layout adjustments for narrow queries section */
+.queries-section .query-header {
+  position: relative;
+}
+
+.queries-section .query-header > div:first-child {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+/* Expanded details optimizations for narrow layout */
+.queries-section .expanded-sql-section {
+  padding: 8px 12px;
+}
+
+.queries-section .sql-header {
+  margin-bottom: 6px;
+}
+
+.queries-section .sql-header h5 {
+  font-size: 12px;
+  margin: 0;
+}
+
+.queries-section .query-code {
+  font-size: 9px;
+  line-height: 1.2;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.queries-section .expanded-metrics {
+  padding: 8px 12px;
+  gap: 8px;
+}
+
+.queries-section .metric {
+  font-size: 11px;
+  gap: 4px;
+}
+
+.queries-section .metric-label {
+  font-size: 10px;
+  min-width: 50px;
+}
+
+.queries-section .metric-value {
+  font-size: 10px;
+}
+}

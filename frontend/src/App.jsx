@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import QueryOptimizerHub from './components/QueryOptimizerHub';
 import ExpensiveQueriesAnalyzer from './components/ExpensiveQueriesAnalyzer';
 import ManualQueryAnalyzer from './components/ManualQueryAnalyzer';
+import ETLInterfaceSearch from './components/ETLInterfaceSearch';
 import GuidedWorkflow from './components/GuidedWorkflow';
 // Keep existing components for backward compatibility
 import OrganizationOverview from './components/OrganizationOverview';
@@ -24,6 +25,7 @@ function App() {
             <Route path="/query-optimizer" element={<QueryOptimizerHub />} />
             <Route path="/top-queries" element={<ExpensiveQueriesAnalyzer />} />
             <Route path="/manual-analyzer" element={<ManualQueryAnalyzer />} />
+            <Route path="/etl-interface-search" element={<ETLInterfaceSearch />} />
             <Route path="/guided-workflow" element={<GuidedWorkflow />} />
             
             {/* Legacy Routes for Backward Compatibility */}
