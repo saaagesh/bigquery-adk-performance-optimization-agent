@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   Play, 
@@ -10,21 +10,30 @@ import {
   CheckCircle,
   Loader,
   Copy,
-  Download
+  Download,
+  ChevronRight,
+  ChevronDown
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useAppContext } from '../context/AppContext';
 import Config from '../config';
 import axios from 'axios';
-import './ManualQueryAnalyzer.css';
+import QueryModal from './QueryModal';
+import './ExpensiveQueries.css';
 
 const API_BASE = Config.API_BASE_URL;
 
 const ManualQueryAnalyzer = () => {
   const { selectedProject, selectedRegion } = useAppContext();
-  const [queryText, setQueryText] = useState('');
-  const [analysis, setAnalysis] = useState(null);
-  const [historicalData, setHistoricalData] = useState(null);
+  const [queryText, setQueryText] = useState(() => localStorage.getItem('manualAnalyzer_queryText') || '');
+  const [analysis, setAnalysis] = useState(() => {
+    const saved = localStorage.getItem('manualAnalyzer_analysis');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [historicalData, setHistoricalData] = useState(() => {
+    const saved = localStorage.getItem('manualAnalyzer_historicalData');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [loading, setLoading] = useState({
     analysis: false,
     historical: false,
@@ -32,6 +41,64 @@ const ManualQueryAnalyzer = () => {
   });
   const [validationResult, setValidationResult] = useState(null);
   const [activeTab, setActiveTab] = useState('input');
+  const [expandedSimilarQueries, setExpandedSimilarQueries] = useState(new Set());
+  const [queryModalOpen, setQueryModalOpen] = useState(false);
+  const [selectedQueryForModal, setSelectedQueryForModal] = useState(null);
+
+  const toggleSimilarQueryExpansion = (jobId) => {
+    setExpandedSimilarQueries(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(jobId)) {
+        newSet.delete(jobId);
+      } else {
+        newSet.add(jobId);
+      }
+      return newSet;
+    });
+  };
+
+  const openQueryModal = (query) => {
+    setSelectedQueryForModal(query);
+    setQueryModalOpen(true);
+  };
+
+  const closeQueryModal = () => {
+    setQueryModalOpen(false);
+    setSelectedQueryForModal(null);
+  };
+
+  useEffect(() => {
+    localStorage.setItem('manualAnalyzer_queryText', queryText);
+  }, [queryText]);
+
+  useEffect(() => {
+    if (analysis) {
+      localStorage.setItem('manualAnalyzer_analysis', JSON.stringify(analysis));
+    } else {
+      localStorage.removeItem('manualAnalyzer_analysis');
+    }
+  }, [analysis]);
+
+  useEffect(() => {
+    if (historicalData) {
+      localStorage.setItem('manualAnalyzer_historicalData', JSON.stringify(historicalData));
+    } else {
+      localStorage.removeItem('manualAnalyzer_historicalData');
+    }
+  }, [historicalData]);
+
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      if (queryText.trim()) {
+        searchHistoricalData();
+      }
+    }, 1000); // 1-second debounce delay
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [queryText]);
 
   const validateQuery = async () => {
     if (!queryText.trim()) return;
@@ -39,32 +106,35 @@ const ManualQueryAnalyzer = () => {
     setLoading(prev => ({ ...prev, validation: true }));
     
     try {
-      // Simple client-side validation first
-      const basicValidation = {
-        hasSql: queryText.trim().length > 0,
-        hasSelect: /select/i.test(queryText),
-        hasFrom: /from/i.test(queryText),
-        hasInformationSchema: /information_schema/i.test(queryText),
-        estimatedComplexity: calculateComplexity(queryText)
-      };
+      // Perform a dry run to get syntax validation and cost estimation
+      const response = await axios.post(`${API_BASE}/validate-query`, {
+        query: queryText,
+        project: selectedProject,
+        region: selectedRegion
+      });
+      
+      const { data } = response;
+      const processedBytes = data.totalBytesProcessed || 0;
+      const processedGB = (processedBytes / (1024 * 1024 * 1024)).toFixed(2);
 
       setValidationResult({
-        isValid: basicValidation.hasSql && basicValidation.hasSelect && !basicValidation.hasInformationSchema,
-        warnings: generateWarnings(basicValidation),
+        isValid: data.isValid,
+        warnings: data.isValid ? [`Estimated to process ${processedGB} GB`] : [data.error],
         suggestions: generateSuggestions(queryText),
-        complexity: basicValidation.estimatedComplexity
+        complexity: calculateComplexity(queryText)
       });
 
     } catch (error) {
       console.error('Query validation error:', error);
       setValidationResult({
         isValid: false,
-        warnings: ['Error validating query syntax'],
+        warnings: [error.response?.data?.error || 'Error validating query syntax'],
         suggestions: [],
         complexity: 'unknown'
       });
     } finally {
       setLoading(prev => ({ ...prev, validation: false }));
+      setActiveTab('validation');
     }
   };
 
@@ -158,7 +228,8 @@ const ManualQueryAnalyzer = () => {
         region: selectedRegion,
         includeOptimization: true,
         includeExecutionPlan: true,
-        includePerformanceInsights: true
+        includePerformanceInsights: true,
+        historicalData: historicalData // Send historical data
       });
       
       setAnalysis(response.data);
@@ -202,9 +273,20 @@ const ManualQueryAnalyzer = () => {
     { id: 'results', label: 'Analysis Results', icon: TrendingUp }
   ];
 
+  const handleClear = () => {
+    localStorage.removeItem('manualAnalyzer_queryText');
+    localStorage.removeItem('manualAnalyzer_analysis');
+    localStorage.removeItem('manualAnalyzer_historicalData');
+    setQueryText('');
+    setAnalysis(null);
+    setHistoricalData(null);
+    setValidationResult(null);
+    setActiveTab('input');
+  };
+
   return (
-    <div className="manual-query-analyzer">
-      <div className="analyzer-header">
+    <div className="expensive-queries">
+      <div className="page-header">
         <div className="header-content">
           <div>
             <h2>Manual Query Analyzer</h2>
@@ -213,8 +295,8 @@ const ManualQueryAnalyzer = () => {
           <div className="analyzer-actions">
             <button 
               className="btn-secondary"
-              onClick={() => setQueryText('')}
-              disabled={!queryText.trim()}
+              onClick={handleClear}
+              disabled={!queryText.trim() && !analysis && !historicalData}
             >
               Clear
             </button>
@@ -230,271 +312,170 @@ const ManualQueryAnalyzer = () => {
         </div>
       </div>
 
-      <div className="analyzer-content">
-        <div className="analyzer-tabs">
-          {tabs.map(tab => {
-            const IconComponent = tab.icon;
-            return (
+      <div className="queries-container">
+        <div className="queries-section">
+          <div className="section-header">
+            <h3>SQL Input</h3>
+          </div>
+          <div className="query-input-container">
+            <textarea
+              className="query-textarea"
+              placeholder="Paste your BigQuery SQL here..."
+              value={queryText}
+              onChange={(e) => setQueryText(e.target.value)}
+              rows={15}
+            />
+            <div className="input-footer">
+              <div className="query-stats">
+                <span>Characters: {queryText.length}</span>
+                <span>Lines: {queryText.split('\n').length}</span>
+              </div>
               <button
-                key={tab.id}
-                className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab.id)}
+                className="btn-link"
+                onClick={() => copyToClipboard(queryText)}
+                disabled={!queryText.trim()}
               >
-                <IconComponent size={16} />
-                {tab.label}
+                <Copy size={14} />
+                Copy
               </button>
-            );
-          })}
-        </div>
-
-        <div className="tab-content">
-          {activeTab === 'input' && (
-            <div className="input-section">
-              <div className="query-input-container">
-                <div className="input-header">
-                  <h3>SQL Query Input</h3>
-                  <div className="input-actions">
-                    <button
-                      className="btn-secondary small"
-                      onClick={validateQuery}
-                      disabled={!queryText.trim() || loading.validation}
-                    >
-                      {loading.validation ? <Loader className="spinning" size={14} /> : <Play size={14} />}
-                      Validate
-                    </button>
-                    <button
-                      className="btn-secondary small"
-                      onClick={searchHistoricalData}
-                      disabled={!queryText.trim() || loading.historical}
-                    >
-                      {loading.historical ? <Loader className="spinning" size={14} /> : <Database size={14} />}
-                      Search History
-                    </button>
-                  </div>
-                </div>
-                
-                <textarea
-                  className="query-textarea"
-                  placeholder="Paste your BigQuery SQL here...
-
-Example:
-SELECT 
-  customer_id,
-  COUNT(*) as order_count,
-  SUM(amount) as total_amount
-FROM `project.dataset.orders`
-WHERE order_date >= '2024-01-01'
-GROUP BY customer_id
-ORDER BY total_amount DESC
-LIMIT 100"
-                  value={queryText}
-                  onChange={(e) => setQueryText(e.target.value)}
-                  rows={15}
-                />
-                
-                <div className="input-footer">
-                  <div className="query-stats">
-                    <span>Characters: {queryText.length}</span>
-                    <span>Lines: {queryText.split('\n').length}</span>
-                  </div>
-                  <button
-                    className="btn-link"
-                    onClick={() => copyToClipboard(queryText)}
-                    disabled={!queryText.trim()}
-                  >
-                    <Copy size={14} />
-                    Copy
-                  </button>
-                </div>
-              </div>
-
-              <div className="quick-tips">
-                <h4>💡 Quick Tips</h4>
-                <ul>
-                  <li>Use fully qualified table names (project.dataset.table)</li>
-                  <li>Include WHERE clauses to limit data scanning</li>
-                  <li>Specify column names instead of SELECT *</li>
-                  <li>Consider adding LIMIT for testing queries</li>
-                </ul>
-              </div>
             </div>
-          )}
-
-          {activeTab === 'validation' && (
-            <div className="validation-section">
-              {validationResult ? (
-                <div className="validation-results">
-                  <div className={`validation-status ${validationResult.isValid ? 'valid' : 'invalid'}`}>
-                    {validationResult.isValid ? (
-                      <>
-                        <CheckCircle size={20} />
-                        Query syntax appears valid
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle size={20} />
-                        Query has validation issues
-                      </>
+          </div>
+        </div>
+        <div className="details-section">
+          <div className="details-tabs">
+            {tabs.map(tab => {
+              const IconComponent = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  className={`tab ${activeTab === tab.id ? 'active' : ''}`}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  <IconComponent size={16} />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="tab-content">
+            {activeTab === 'validation' && (
+              <div className="validation-section">
+                {validationResult ? (
+                  <div className="validation-results">
+                    <div className={`validation-status ${validationResult.isValid ? 'valid' : 'invalid'}`}>
+                      {validationResult.isValid ? (
+                        <>
+                          <CheckCircle size={20} />
+                          Query syntax appears valid
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle size={20} />
+                          Query has validation issues
+                        </>
+                      )}
+                    </div>
+                    {validationResult.warnings.length > 0 && (
+                      <div className="validation-warnings">
+                        <h4>⚠️ Warnings</h4>
+                        <ul>
+                          {validationResult.warnings.map((warning, index) => (
+                            <li key={index}>{warning}</li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
                   </div>
-
-                  {validationResult.warnings.length > 0 && (
-                    <div className="validation-warnings">
-                      <h4>⚠️ Warnings</h4>
-                      <ul>
-                        {validationResult.warnings.map((warning, index) => (
-                          <li key={index}>{warning}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {validationResult.suggestions.length > 0 && (
-                    <div className="validation-suggestions">
-                      <h4>💡 Suggestions</h4>
-                      <ul>
-                        {validationResult.suggestions.map((suggestion, index) => (
-                          <li key={index}>{suggestion}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  <div className="complexity-info">
-                    <h4>Query Complexity</h4>
-                    <div className={`complexity-badge ${validationResult.complexity.toLowerCase()}`}>
-                      {validationResult.complexity}
-                    </div>
+                ) : (
+                  <div className="empty-state">
+                    <AlertCircle size={48} />
+                    <h3>No validation performed</h3>
+                    <p>Click "Analyze Query" to check your SQL syntax</p>
                   </div>
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <AlertCircle size={48} />
-                  <h3>No validation performed</h3>
-                  <p>Click "Validate" in the Query Input tab to check your SQL syntax</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'historical' && (
-            <div className="historical-section">
-              {historicalData ? (
-                <div className="historical-results">
-                  <div className="section-header">
-                    <h3>Historical Execution Data</h3>
+                )}
+              </div>
+            )}
+            {activeTab === 'historical' && (
+              <div className="historical-section">
+                {historicalData ? (
+                  <div className="historical-results">
+                    {historicalData.similarQueries && (
+                      <div className="queries-list">
+                        <h4>🔍 Top 2 Similar Queries</h4>
+                        {historicalData.similarQueries.slice(0, 2).map((query, index) => {
+                          const isExpanded = expandedSimilarQueries.has(query.job_id);
+                          return (
+                            <div key={index} className={`query-item ${isExpanded ? 'expanded' : ''}`}>
+                              <div className="query-header" onClick={() => toggleSimilarQueryExpansion(query.job_id)}>
+                                <div className="query-identifier">
+                                  <div className="query-hash">
+                                    <span className="similarity">
+                                      {query.similarity}% similar
+                                    </span>
+                                  </div>
+                                  <div className="job-id">
+                                    <span className="job-id-label">Job ID:</span>
+                                    <span className="job-id-value">{query.job_id}</span>
+                                  </div>
+                                </div>
+                                <button className="expand-toggle">
+                                  {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                </button>
+                              </div>
+                              {isExpanded && (
+                                <div className="query-expanded-details">
+                                  <pre className="query-code">
+                                    {query.query_text}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-
-                  {historicalData.patterns && (
-                    <div className="patterns-section">
-                      <h4>📊 Usage Patterns</h4>
-                      <ul>
-                        {historicalData.patterns.map((pattern, index) => (
-                          <li key={index}>{pattern}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {historicalData.similarQueries && (
-                    <div className="similar-queries">
-                      <h4>🔍 Similar Queries</h4>
-                      {historicalData.similarQueries.map((query, index) => (
-                        <div key={index} className="similar-query-item">
-                          <div className="query-meta">
-                            <span className="similarity">
-                              {query.similarity}% similar
-                            </span>
-                            <span className="execution-time">
-                              <Clock size={14} />
-                              {query.execution_time}
-                            </span>
-                            <span className="slot-usage">
-                              <TrendingUp size={14} />
-                              {query.slot_ms.toLocaleString()} slot ms
-                            </span>
-                          </div>
-                          <div className="query-details">
-                            <span>Job ID: {query.job_id}</span>
-                            <span>Status: {query.status}</span>
-                            <span>{new Date(query.creation_time).toLocaleDateString()}</span>
-                          </div>
+                ) : (
+                  <div className="empty-state">
+                    <Database size={48} />
+                    <h3>No historical data loaded</h3>
+                    <p>Click "Analyze Query" to find similar queries</p>
+                  </div>
+                )}
+              </div>
+            )}
+            {activeTab === 'results' && (
+              <div className="results-section">
+                {analysis ? (
+                  <div className="analysis-results">
+                    {analysis.optimization && (
+                      <div className="optimization-section">
+                        <div className="section-header">
+                          <h3>🎯 Optimization Recommendations</h3>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <Database size={48} />
-                  <h3>No historical data loaded</h3>
-                  <p>Click "Search History" in the Query Input tab to find similar queries</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'results' && (
-            <div className="results-section">
-              {analysis ? (
-                <div className="analysis-results">
-                  {analysis.message && (
-                    <div className="analysis-message">
-                      <AlertCircle size={16} />
-                      {analysis.message}
-                    </div>
-                  )}
-
-                  {analysis.optimization && (
-                    <div className="optimization-section">
-                      <div className="section-header">
-                        <h3>🎯 Optimization Recommendations</h3>
-                        <button
-                          className="btn-secondary small"
-                          onClick={() => copyToClipboard(analysis.optimization.recommendations)}
-                        >
-                          <Copy size={14} />
-                          Copy
-                        </button>
+                        <div className="recommendations-content">
+                          <ReactMarkdown>{analysis.optimization.recommendations}</ReactMarkdown>
+                        </div>
                       </div>
-                      
-                      <div className="recommendations-content">
-                        <ReactMarkdown>{analysis.optimization.recommendations}</ReactMarkdown>
-                      </div>
-                    </div>
-                  )}
-
-                  {analysis.executionPlan && (
-                    <div className="execution-plan-section">
-                      <h3>📋 Execution Plan Analysis</h3>
-                      <div className="execution-plan-content">
-                        {/* Execution plan visualization would go here */}
-                        <p>Execution plan analysis coming soon...</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {analysis.performanceInsights && (
-                    <div className="performance-insights-section">
-                      <h3>⚡ Performance Insights</h3>
-                      <div className="insights-content">
-                        {/* Performance insights would go here */}
-                        <p>Performance insights analysis coming soon...</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <TrendingUp size={48} />
-                  <h3>No analysis results</h3>
-                  <p>Click "Analyze Query" to get optimization recommendations</p>
-                </div>
-              )}
-            </div>
-          )}
+                    )}
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <TrendingUp size={48} />
+                    <h3>No analysis results</h3>
+                    <p>Click "Analyze Query" to get optimization recommendations</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
+      <QueryModal
+        query={selectedQueryForModal}
+        isOpen={queryModalOpen}
+        onClose={closeQueryModal}
+      />
     </div>
   );
 };

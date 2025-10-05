@@ -16,22 +16,70 @@ const API_BASE = Config.API_BASE_URL;
 
 const ExpensiveQueries = () => {
   const { selectedProject, selectedRegion } = useAppContext();
-  const [expensiveQueries, setExpensiveQueries] = useState([]);
-  const [selectedJobId, setSelectedJobId] = useState(null);
-  const [queryDetails, setQueryDetails] = useState(null);
-  const [recommendations, setRecommendations] = useState('');
+  const [expensiveQueries, setExpensiveQueries] = useState(() => {
+    const saved = localStorage.getItem('expensiveQueries_queries');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [selectedJobId, setSelectedJobId] = useState(() => {
+    return localStorage.getItem('expensiveQueries_selectedJobId') || null;
+  });
+  const [queryDetails, setQueryDetails] = useState(() => {
+    const saved = localStorage.getItem('expensiveQueries_queryDetails');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [recommendations, setRecommendations] = useState(() => {
+    return localStorage.getItem('expensiveQueries_recommendations') || '';
+  });
   const [debugInfo, setDebugInfo] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [expandedQueries, setExpandedQueries] = useState(new Set());
   const [activeTab, setActiveTab] = useState('overview');
-  const [days, setDays] = useState(1); // Default to 1 day
+  const [days, setDays] = useState(() => {
+    const saved = localStorage.getItem('expensiveQueries_days');
+    return saved ? JSON.parse(saved) : 1;
+  });
   
   const [loadingQueries, setLoadingQueries] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
 
   useEffect(() => {
-    fetchExpensiveQueries();
+    localStorage.setItem('expensiveQueries_queries', JSON.stringify(expensiveQueries));
+  }, [expensiveQueries]);
+
+  useEffect(() => {
+    if (selectedJobId) {
+      localStorage.setItem('expensiveQueries_selectedJobId', selectedJobId);
+    } else {
+      localStorage.removeItem('expensiveQueries_selectedJobId');
+    }
+  }, [selectedJobId]);
+
+  useEffect(() => {
+    if (queryDetails) {
+      localStorage.setItem('expensiveQueries_queryDetails', JSON.stringify(queryDetails));
+    } else {
+      localStorage.removeItem('expensiveQueries_queryDetails');
+    }
+  }, [queryDetails]);
+
+  useEffect(() => {
+    if (recommendations) {
+      localStorage.setItem('expensiveQueries_recommendations', recommendations);
+    } else {
+      localStorage.removeItem('expensiveQueries_recommendations');
+    }
+  }, [recommendations]);
+
+  useEffect(() => {
+    localStorage.setItem('expensiveQueries_days', JSON.stringify(days));
+  }, [days]);
+
+  useEffect(() => {
+    // Fetch queries only if the list is empty
+    if (expensiveQueries.length === 0) {
+      fetchExpensiveQueries();
+    }
   }, [selectedProject, selectedRegion, days]);
 
   const toggleQueryExpansion = (jobId, event) => {
@@ -158,6 +206,20 @@ const ExpensiveQueries = () => {
     }
   };
 
+  const handleRefresh = () => {
+    localStorage.removeItem('expensiveQueries_queries');
+    localStorage.removeItem('expensiveQueries_selectedJobId');
+    localStorage.removeItem('expensiveQueries_queryDetails');
+    localStorage.removeItem('expensiveQueries_recommendations');
+    localStorage.removeItem('expensiveQueries_days');
+    setExpensiveQueries([]);
+    setSelectedJobId(null);
+    setQueryDetails(null);
+    setRecommendations('');
+    setDays(1);
+    fetchExpensiveQueries();
+  };
+
   const handleCloseModal = () => {
     setIsModalOpen(false);
   };
@@ -172,7 +234,7 @@ const ExpensiveQueries = () => {
           </div>
         </div>
         <FilterControls 
-          onRefresh={fetchExpensiveQueries}
+          onRefresh={handleRefresh}
           loading={loadingQueries}
           showDaysFilter={true}
           days={days}

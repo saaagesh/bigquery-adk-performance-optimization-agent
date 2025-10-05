@@ -24,6 +24,7 @@ import AIRecommendationsModal from './AIRecommendationsModal';
 import ExecutionPlanViewer from './ExecutionPlanViewer';
 import PerformanceInsightsViewer from './PerformanceInsightsViewer';
 import QueryModal from './QueryModal';
+
 import './ExpensiveQueries.css'; // Reuse the same styles
 
 const API_BASE = Config.API_BASE_URL;
@@ -33,15 +34,31 @@ const ETLInterfaceSearch = () => {
   
   // Interface codes and filtering
   const [availableInterfaceCodes, setAvailableInterfaceCodes] = useState([]);
-  const [selectedInterfaceCodes, setSelectedInterfaceCodes] = useState([]);
+  const [selectedInterfaceCodes, setSelectedInterfaceCodes] = useState(() => {
+    const saved = localStorage.getItem('etlInterface_selectedCodes');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [interfaceCodeFilter, setInterfaceCodeFilter] = useState('');
-  const [days, setDays] = useState(1); // Default to 1 day
+  const [days, setDays] = useState(() => {
+    const saved = localStorage.getItem('etlInterface_days');
+    return saved ? JSON.parse(saved) : 1;
+  });
   
   // Query results and details
-  const [filteredQueries, setFilteredQueries] = useState([]);
-  const [selectedJobId, setSelectedJobId] = useState(null);
-  const [queryDetails, setQueryDetails] = useState(null);
-  const [recommendations, setRecommendations] = useState('');
+  const [filteredQueries, setFilteredQueries] = useState(() => {
+    const saved = localStorage.getItem('etlInterface_queries');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [selectedJobId, setSelectedJobId] = useState(() => {
+    return localStorage.getItem('etlInterface_selectedJobId') || null;
+  });
+  const [queryDetails, setQueryDetails] = useState(() => {
+    const saved = localStorage.getItem('etlInterface_queryDetails');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [recommendations, setRecommendations] = useState(() => {
+    return localStorage.getItem('etlInterface_recommendations') || '';
+  });
   const [debugInfo, setDebugInfo] = useState('');
   
   // UI state
@@ -56,6 +73,42 @@ const ETLInterfaceSearch = () => {
   const [loadingQueries, setLoadingQueries] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('etlInterface_selectedCodes', JSON.stringify(selectedInterfaceCodes));
+  }, [selectedInterfaceCodes]);
+
+  useEffect(() => {
+    localStorage.setItem('etlInterface_days', JSON.stringify(days));
+  }, [days]);
+  
+  useEffect(() => {
+    localStorage.setItem('etlInterface_queries', JSON.stringify(filteredQueries));
+  }, [filteredQueries]);
+
+  useEffect(() => {
+    if (selectedJobId) {
+      localStorage.setItem('etlInterface_selectedJobId', selectedJobId);
+    } else {
+      localStorage.removeItem('etlInterface_selectedJobId');
+    }
+  }, [selectedJobId]);
+
+  useEffect(() => {
+    if (queryDetails) {
+      localStorage.setItem('etlInterface_queryDetails', JSON.stringify(queryDetails));
+    } else {
+      localStorage.removeItem('etlInterface_queryDetails');
+    }
+  }, [queryDetails]);
+
+  useEffect(() => {
+    if (recommendations) {
+      localStorage.setItem('etlInterface_recommendations', recommendations);
+    } else {
+      localStorage.removeItem('etlInterface_recommendations');
+    }
+  }, [recommendations]);
 
   useEffect(() => {
     fetchInterfaceCodes();
@@ -151,6 +204,8 @@ const ETLInterfaceSearch = () => {
       setQueryDetails(null);
       setRecommendations('');
       setActiveTab('overview');
+      localStorage.removeItem('etlInterface_queryDetails');
+      localStorage.removeItem('etlInterface_recommendations');
       return;
     }
 
@@ -223,6 +278,22 @@ const ETLInterfaceSearch = () => {
     setQueryModalOpen(true);
   };
 
+  const handleRefresh = () => {
+    localStorage.removeItem('etlInterface_selectedCodes');
+    localStorage.removeItem('etlInterface_days');
+    localStorage.removeItem('etlInterface_queries');
+    localStorage.removeItem('etlInterface_selectedJobId');
+    localStorage.removeItem('etlInterface_queryDetails');
+    localStorage.removeItem('etlInterface_recommendations');
+    setSelectedInterfaceCodes([]);
+    setDays(1);
+    setFilteredQueries([]);
+    setSelectedJobId(null);
+    setQueryDetails(null);
+    setRecommendations('');
+    fetchInterfaceCodes();
+  };
+
   const closeQueryModal = () => {
     setQueryModalOpen(false);
     setSelectedQueryForModal(null);
@@ -238,12 +309,7 @@ const ETLInterfaceSearch = () => {
           </div>
         </div>
         <FilterControls 
-          onRefresh={() => {
-            fetchInterfaceCodes();
-            if (selectedInterfaceCodes.length > 0) {
-              searchQueriesByInterface();
-            }
-          }}
+          onRefresh={handleRefresh}
           loading={loadingInterfaceCodes || loadingQueries}
           showDaysFilter={true}
           days={days}
