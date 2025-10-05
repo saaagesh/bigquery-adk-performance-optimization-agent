@@ -40,7 +40,7 @@ const ManualQueryAnalyzer = () => {
     validation: false
   });
   const [validationResult, setValidationResult] = useState(null);
-  const [activeTab, setActiveTab] = useState('input');
+  const [activeTab, setActiveTab] = useState('validation');
   const [expandedSimilarQueries, setExpandedSimilarQueries] = useState(new Set());
   const [queryModalOpen, setQueryModalOpen] = useState(false);
   const [selectedQueryForModal, setSelectedQueryForModal] = useState(null);
@@ -189,7 +189,6 @@ const ManualQueryAnalyzer = () => {
         project: selectedProject,
         region: selectedRegion
       });
-      
       setHistoricalData(response.data);
     } catch (error) {
       console.error('Error searching historical data:', error);
@@ -202,7 +201,8 @@ const ManualQueryAnalyzer = () => {
             execution_time: '2.3s',
             slot_ms: 145000,
             creation_time: '2024-01-15T10:30:00Z',
-            status: 'DONE'
+            status: 'DONE',
+            query_text: 'SELECT customer_id, COUNT(*) as order_count FROM `project.dataset.orders` GROUP BY customer_id ORDER BY order_count DESC LIMIT 100;'
           }
         ],
         patterns: [
@@ -267,7 +267,6 @@ const ManualQueryAnalyzer = () => {
   };
 
   const tabs = [
-    { id: 'input', label: 'Query Input', icon: FileText },
     { id: 'validation', label: 'Validation', icon: CheckCircle },
     { id: 'historical', label: 'Historical Data', icon: Clock },
     { id: 'results', label: 'Analysis Results', icon: TrendingUp }
@@ -323,7 +322,6 @@ const ManualQueryAnalyzer = () => {
               placeholder="Paste your BigQuery SQL here..."
               value={queryText}
               onChange={(e) => setQueryText(e.target.value)}
-              rows={15}
             />
             <div className="input-footer">
               <div className="query-stats">
@@ -422,10 +420,15 @@ const ManualQueryAnalyzer = () => {
                                   {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                                 </button>
                               </div>
+                              <div className="query-preview">
+                                <code>
+                                  {query.query_preview ? `${query.query_preview.substring(0, 100)}...` : 'No preview available'}
+                                </code>
+                              </div>
                               {isExpanded && (
                                 <div className="query-expanded-details">
                                   <pre className="query-code">
-                                    {query.query_text}
+                                    {query.query_preview}
                                   </pre>
                                 </div>
                               )}
