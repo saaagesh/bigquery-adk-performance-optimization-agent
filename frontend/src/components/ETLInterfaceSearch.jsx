@@ -23,6 +23,7 @@ import Config from '../config';
 import AIRecommendationsModal from './AIRecommendationsModal';
 import ExecutionPlanViewer from './ExecutionPlanViewer';
 import PerformanceInsightsViewer from './PerformanceInsightsViewer';
+import QueryModal from './QueryModal';
 import './ExpensiveQueries.css'; // Reuse the same styles
 
 const API_BASE = Config.API_BASE_URL;
@@ -47,6 +48,8 @@ const ETLInterfaceSearch = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [expandedQueries, setExpandedQueries] = useState(new Set());
   const [activeTab, setActiveTab] = useState('overview');
+  const [queryModalOpen, setQueryModalOpen] = useState(false);
+  const [selectedQueryForModal, setSelectedQueryForModal] = useState(null);
   
   // Loading states
   const [loadingInterfaceCodes, setLoadingInterfaceCodes] = useState(false);
@@ -95,6 +98,12 @@ const ETLInterfaceSearch = () => {
       setSelectedJobId(null);
       setQueryDetails(null);
       setRecommendations('');
+      
+      // Debug: Log query structure to see available fields
+      if (response.data.queries && response.data.queries.length > 0) {
+        console.log('ETL Query sample structure:', response.data.queries[0]);
+        console.log('Available fields:', Object.keys(response.data.queries[0]));
+      }
     } catch (error) {
       console.error('Error searching queries:', error);
       setDebugInfo(`Error: ${error.response?.data?.message || error.message}`);
@@ -124,25 +133,17 @@ const ETLInterfaceSearch = () => {
 
   const toggleQueryExpansion = (jobId, event) => {
     event.stopPropagation();
+    console.log('Toggling expansion for jobId:', jobId, 'Current expanded:', expandedQueries.has(jobId));
     const newExpanded = new Set(expandedQueries);
     if (newExpanded.has(jobId)) {
       newExpanded.delete(jobId);
     } else {
       newExpanded.add(jobId);
     }
+    console.log('New expanded state:', newExpanded);
     setExpandedQueries(newExpanded);
   };
 
-  const getQueryHash = (query) => {
-    if (!query) return 'N/A';
-    let hash = 0;
-    for (let i = 0; i < query.length; i++) {
-      const char = query.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return Math.abs(hash).toString(16).substring(0, 8).toUpperCase();
-  };
 
   const handleQuerySelect = async (jobId) => {
     if (selectedJobId === jobId) {
@@ -217,6 +218,16 @@ const ETLInterfaceSearch = () => {
     setIsModalOpen(false);
   };
 
+  const openQueryModal = (query) => {
+    setSelectedQueryForModal(query);
+    setQueryModalOpen(true);
+  };
+
+  const closeQueryModal = () => {
+    setQueryModalOpen(false);
+    setSelectedQueryForModal(null);
+  };
+
   return (
     <div className="expensive-queries">
       <div className="page-header">
@@ -249,13 +260,7 @@ const ETLInterfaceSearch = () => {
       </div>
 
       {/* Search Action Section */}
-      <div style={{ 
-        marginBottom: '20px', 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        padding: '10px 0'
-      }}>
+      <div className="search-action-section">
         <div style={{ fontSize: '14px', color: '#666' }}>
           {selectedInterfaceCodes.length > 0 ? (
             <>Selected {selectedInterfaceCodes.length} interface code{selectedInterfaceCodes.length !== 1 ? 's' : ''} for last {days} day{days !== 1 ? 's' : ''}</>
@@ -266,18 +271,7 @@ const ETLInterfaceSearch = () => {
         <button
           onClick={searchQueriesByInterface}
           disabled={selectedInterfaceCodes.length === 0 || loadingQueries}
-          style={{
-            padding: '8px 20px',
-            background: selectedInterfaceCodes.length === 0 ? '#ccc' : '#007bff',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: selectedInterfaceCodes.length === 0 ? 'not-allowed' : 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontSize: '14px'
-          }}
+          className={`search-queries-btn ${selectedInterfaceCodes.length === 0 ? 'disabled' : ''}`}
         >
           {loadingQueries ? <RefreshCw size={16} className="spinning" /> : <Search size={16} />}
           {loadingQueries ? 'Searching...' : 'Search Queries'}
@@ -309,80 +303,80 @@ const ETLInterfaceSearch = () => {
             ) : (
               filteredQueries.map((query, index) => {
                 const isExpanded = expandedQueries.has(query.job_id);
-                const queryHash = getQueryHash(query.query || query.query_preview);
                 
                 return (
-                  <div 
-                    key={query.job_id} 
+                  <div
+                    key={query.job_id}
                     className={`query-item ${selectedJobId === query.job_id ? 'selected' : ''} ${isExpanded ? 'expanded' : ''}`}
                   >
-                    <div 
+                    <div
                       className="query-header"
                       onClick={() => handleQuerySelect(query.job_id)}
                     >
-                      <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="query-rank">
-                            <span className="rank-number">#{index + 1}</span>
-                            <Database className="expense-icon" size={14} />
-                          </div>
-                          
-                          <div className="query-identifier">
-                            <div className="query-hash">
-                              <Hash size={12} />
-                              <span title="Query Hash: A unique identifier generated from the query structure to group similar queries">Hash: {queryHash}</span>
-                            </div>
-                            <div className="job-id">
-                              <span className="job-id-label">Interface:</span>
-                              <span className="job-id-value" style={{ background: '#28a745', color: 'white', padding: '1px 4px', borderRadius: '2px', fontSize: '10px' }} title={query.etl_intf_cd}>
-                                {query.etl_intf_cd}
-                              </span>
-                            </div>
-                          </div>
+                      <div className="query-rank">
+                        <span className="rank-number">#{index + 1}</span>
+                        <Database className="expense-icon" size={14} />
+                      </div>
+                      
+                      <div className="query-identifier">
+                        <div className="query-hash">
+                          <Hash size={14} />
+                          <span title="ETL Interface Code">Interface: {query.etl_intf_cd}</span>
                         </div>
-                        
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                          <div className="query-cost">
-                            <span className="slot-ms">{(query.total_slot_ms / 1000).toFixed(0)}k</span>
-                            <span className="slot-label">slot ms</span>
-                          </div>
-                          
-                          <button 
-                            className="expand-toggle"
-                            onClick={(e) => toggleQueryExpansion(query.job_id, e)}
-                            title={isExpanded ? 'Collapse details' : 'Expand details'}
-                            style={{ position: 'static', padding: '2px', minWidth: 'auto' }}
-                          >
-                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          </button>
+                        <div className="job-id">
+                          <span className="job-id-label">Job ID:</span>
+                          <span className="job-id-value">{query.job_id}</span>
                         </div>
                       </div>
+                      
+                      <div className="query-cost">
+                        <span className="slot-ms">{query.total_slot_ms.toLocaleString()}</span>
+                        <span className="slot-label">slot ms</span>
+                      </div>
+                      
+                      <button
+                        className="expand-toggle"
+                        onClick={(e) => toggleQueryExpansion(query.job_id, e)}
+                        title={isExpanded ? 'Collapse details' : 'Expand details'}
+                      >
+                        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </button>
                     </div>
                     
                     <div className="query-meta">
-                      <div className="query-user" title={query.user_email}>
-                        <User size={12} />
-                        <span>{query.user_email.split('@')[0]}</span>
+                      <div className="query-user">
+                        <User size={14} />
+                        <span>{query.user_email}</span>
                       </div>
                       <div className="query-time">
-                        <Clock size={12} />
-                        <span>{new Date(query.creation_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        <Clock size={14} />
+                        <span>{new Date(query.creation_time).toLocaleDateString()}</span>
+                      </div>
+                      <div className="query-project">
+                        <Database size={14} />
+                        <span>{query.project_id}</span>
                       </div>
                       {query.duration_seconds && (
                         <div className="query-duration">
-                          <span>{query.duration_seconds}s</span>
+                          <span>Duration: {query.duration_seconds}s</span>
                         </div>
                       )}
                     </div>
                     
                     <div className="query-preview">
                       <div className="preview-header">
-                        <span className="preview-label">Preview:</span>
-                        <span className="expand-hint" style={{ fontSize: '10px' }}>{isExpanded ? 'Collapse' : 'Expand'}</span>
+                        <span className="preview-label">Query Preview:</span>
+                        <button
+                          className="show-full-query-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleQueryExpansion(query.job_id, e);
+                          }}
+                        >
+                          {isExpanded ? 'Hide Full Query' : 'Show Full Query'}
+                        </button>
                       </div>
-                      <code title={query.query_preview || query.query?.substring(0, Config.MAX_QUERY_PREVIEW_LENGTH) || 'No preview available'}>
-                        {query.query_preview || query.query?.substring(0, 150) || 'No preview available'}
-                      </code>
+                      <code>{query.query_preview || query.query?.substring(0, Config.MAX_QUERY_PREVIEW_LENGTH) || 'No preview available'}</code>
                     </div>
                     
                     {isExpanded && (
@@ -391,9 +385,10 @@ const ETLInterfaceSearch = () => {
                           <div className="sql-header">
                             <h5>Full SQL Query</h5>
                             <div className="query-id-display">
-                              <span className="query-id-label">Query Hash:</span>
-                              <span className="query-id-value">{queryHash}</span>
+                              <span className="query-id-label">Interface:</span>
+                              <span className="query-id-value">{query.etl_intf_cd}</span>
                             </div>
+
                           </div>
                           {query.query ? (
                             <pre className="query-code">{query.query}</pre>
@@ -405,28 +400,7 @@ const ETLInterfaceSearch = () => {
                           )}
                         </div>
                         
-                        <div className="expanded-metrics">
-                          <div className="metric">
-                            <span className="metric-label">Interface:</span>
-                            <span className="metric-value" style={{ background: '#28a745', color: 'white', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>
-                              {query.etl_intf_cd}
-                            </span>
-                          </div>
-                          <div className="metric">
-                            <span className="metric-label">Data:</span>
-                            <span className="metric-value">{query.gb_processed ? query.gb_processed.toFixed(2) + ' GB' : 'N/A'}</span>
-                          </div>
-                          <div className="metric">
-                            <span className="metric-label">State:</span>
-                            <span className="metric-value">{query.state || 'N/A'}</span>
-                          </div>
-                          {query.error_reason && (
-                            <div className="metric">
-                              <span className="metric-label">Error:</span>
-                              <span className="metric-value" style={{ color: '#dc3545' }}>{query.error_reason}</span>
-                            </div>
-                          )}
-                        </div>
+
                       </div>
                     )}
                   </div>
@@ -439,7 +413,7 @@ const ETLInterfaceSearch = () => {
         <div className="details-section">
           {!selectedJobId ? (
             <div className="placeholder">
-              <Database size={48} />
+              <Search size={48} />
               <h3>Select a query to analyze</h3>
               <p>Choose a query from the results to see detailed analysis and optimization recommendations</p>
             </div>
@@ -453,7 +427,7 @@ const ETLInterfaceSearch = () => {
                   <div className="query-identifiers">
                     <div className="query-id-badge">
                       <Hash size={14} />
-                      <span>Query Hash: {getQueryHash(queryDetails?.query || filteredQueries.find(q => q.job_id === selectedJobId)?.query)}</span>
+                      <span>Interface: {filteredQueries.find(q => q.job_id === selectedJobId)?.etl_intf_cd || 'N/A'}</span>
                     </div>
                   </div>
                 </div>
@@ -490,49 +464,66 @@ const ETLInterfaceSearch = () => {
               <div className="tab-content">
                 {activeTab === 'overview' && (
                   <div className="overview-tab">
-                    <div className="performance-summary">
-                      <h4>Query Performance Summary</h4>
-                      <div className="summary-grid">
-                        <div className="summary-item">
-                          <span className="summary-label">Slot Milliseconds</span>
-                          <span className="summary-value">{queryDetails.total_slot_ms?.toLocaleString() || 'N/A'}</span>
-                        </div>
-                        <div className="summary-item">
-                          <span className="summary-label">Duration</span>
-                          <span className="summary-value">{queryDetails.duration_seconds ? queryDetails.duration_seconds + 's' : 'N/A'}</span>
-                        </div>
-                        <div className="summary-item">
-                          <span className="summary-label">Data Processed</span>
-                          <span className="summary-value">{queryDetails.total_bytes_processed ? (queryDetails.total_bytes_processed / (1024*1024*1024)).toFixed(2) + ' GB' : 'N/A'}</span>
-                        </div>
-                        <div className="summary-item">
-                          <span className="summary-label">ETL Interface</span>
-                          <span className="summary-value" style={{ background: '#28a745', color: 'white', padding: '4px 8px', borderRadius: '4px' }}>
-                            {filteredQueries.find(q => q.job_id === selectedJobId)?.etl_intf_cd || 'N/A'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="quick-insights">
-                      <h4>Quick Insights</h4>
-                      <div className="insight-item">
-                        <span className="insight-label">ETL Interface Code:</span>
-                        <span className="insight-value">{filteredQueries.find(q => q.job_id === selectedJobId)?.etl_intf_cd || 'N/A'}</span>
-                      </div>
-                      <div className="insight-item">
-                        <span className="insight-label">Executed by:</span>
-                        <span className="insight-value">{queryDetails.user_email || 'N/A'}</span>
-                      </div>
-                      <div className="insight-item">
-                        <span className="insight-label">Project:</span>
-                        <span className="insight-value">{queryDetails.project_id || selectedProject}</span>
-                      </div>
-                      <div className="insight-item">
-                        <span className="insight-label">State:</span>
-                        <span className="insight-value">{filteredQueries.find(q => q.job_id === selectedJobId)?.state || 'N/A'}</span>
-                      </div>
-                    </div>
+                    {(() => {
+                      // Get the selected query data once to avoid multiple lookups
+                      const selectedQuery = filteredQueries.find(q => q.job_id === selectedJobId);
+                      
+                      return (
+                        <>
+                          <div className="performance-summary">
+                            <h4>Query Performance Summary</h4>
+                            <div className="summary-grid">
+                              <div className="summary-item">
+                                <span className="summary-label">Slot Milliseconds</span>
+                                <span className="summary-value">{selectedQuery?.total_slot_ms?.toLocaleString() || 'N/A'}</span>
+                              </div>
+                              <div className="summary-item">
+                                <span className="summary-label">Duration</span>
+                                <span className="summary-value">{selectedQuery?.duration_seconds ? selectedQuery.duration_seconds + 's' : 'N/A'}</span>
+                              </div>
+                              <div className="summary-item">
+                                <span className="summary-label">Data Processed</span>
+                                <span className="summary-value">{selectedQuery?.total_bytes_processed ? (selectedQuery.total_bytes_processed / (1024*1024*1024)).toFixed(2) + ' GB' : 'N/A'}</span>
+                              </div>
+                              <div className="summary-item">
+                                <span className="summary-label">ETL Interface</span>
+                                <span className="summary-value etl-interface-badge">
+                                  {selectedQuery?.etl_intf_cd || 'N/A'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="quick-insights">
+                            <h4>Quick Insights</h4>
+                            <div className="insight-item">
+                              <span className="insight-label">ETL Interface Code:</span>
+                              <span className="insight-value">{selectedQuery?.etl_intf_cd || 'N/A'}</span>
+                            </div>
+                            <div className="insight-item">
+                              <span className="insight-label">Executed by:</span>
+                              <span className="insight-value">{selectedQuery?.user_email || queryDetails?.user_email || 'N/A'}</span>
+                            </div>
+                            <div className="insight-item">
+                              <span className="insight-label">Project:</span>
+                              <span className="insight-value">{selectedQuery?.project_id || queryDetails?.project_id || selectedProject}</span>
+                            </div>
+                            <div className="insight-item">
+                              <span className="insight-label">State:</span>
+                              <span className="insight-value">{selectedQuery?.state || 'N/A'}</span>
+                            </div>
+                            <div className="insight-item">
+                              <span className="insight-label">Creation Time:</span>
+                              <span className="insight-value">{selectedQuery?.creation_time ? new Date(selectedQuery.creation_time).toLocaleString() : 'N/A'}</span>
+                            </div>
+                            <div className="insight-item">
+                              <span className="insight-label">Job Type:</span>
+                              <span className="insight-value">{selectedQuery?.job_type || 'QUERY'}</span>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                     
                     <div className="query-content">
                       <h4>Query Content</h4>
@@ -618,12 +609,18 @@ const ETLInterfaceSearch = () => {
       </div>
       
       {isModalOpen && (
-        <AIRecommendationsModal 
+        <AIRecommendationsModal
           recommendations={recommendations}
           onClose={handleCloseModal}
           loading={loadingRecommendations}
         />
       )}
+      
+      <QueryModal
+        query={selectedQueryForModal}
+        isOpen={queryModalOpen}
+        onClose={closeQueryModal}
+      />
     </div>
   );
 };

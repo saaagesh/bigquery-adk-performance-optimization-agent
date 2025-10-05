@@ -475,7 +475,7 @@ const ExpensiveQueries = () => {
                 )}
                 
                 {activeTab === 'optimization' && (
-                  <div className="optimization-tab">
+                  <div className="optimization-tab optimization-viewer">
                     <div className="optimization-header">
                       <h4>AI-Powered Optimization</h4>
                       <button
@@ -499,14 +499,14 @@ const ExpensiveQueries = () => {
                           <p>Click "Get AI Recommendations" to analyze this query and receive optimization suggestions</p>
                         </div>
                       )}
+                      
+                      {queryDetails.ddl && (
+                        <div className="schema-section">
+                          <h5>Referenced Tables Schema</h5>
+                          <pre className="ddl-code">{queryDetails.ddl}</pre>
+                        </div>
+                      )}
                     </div>
-                    
-                    {queryDetails.ddl && (
-                      <div className="schema-section">
-                        <h5>Referenced Tables Schema</h5>
-                        <pre className="ddl-code">{queryDetails.ddl}</pre>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>

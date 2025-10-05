@@ -235,7 +235,7 @@ const ExpensiveQueriesAnalyzer = () => {
       <div className="analyzer-header">
         <div className="header-content">
           <div>
-            <h2>🔥 Top Expensive Queries Analysis (UPDATED)</h2>
+            <h2>🔥 Top Expensive Queries Analysis</h2>
             <p>Deep dive into your most resource-intensive queries with AI-powered optimization insights</p>
           </div>
         </div>
@@ -249,7 +249,7 @@ const ExpensiveQueriesAnalyzer = () => {
         {/* Queries List */}
         <div className="queries-panel">
           <div className="panel-header">
-            <h3>🔍 Top 10 Most Expensive Queries</h3>
+            <h3>🔍 Top Most Expensive Queries by Slots</h3>
             {/* Updated to show full query ID */}
             <div className="queries-count">
               {expensiveQueries.length} queries found

@@ -1927,7 +1927,7 @@ def get_etl_interface_queries():
     interface_filter = f"AND LOWER(TRIM(b.value)) IN ('{interface_codes_str}')"
 
     try:
-        # Use the query structure provided by the user
+        # Use the query structure provided by the user - enhanced with missing fields
         etl_queries_sql = f"""
             SELECT
                 a.job_id,
@@ -1935,8 +1935,11 @@ def get_etl_interface_queries():
                 a.user_email,
                 a.creation_time,
                 a.total_slot_ms,
+                a.total_bytes_processed,
+                a.total_bytes_billed,
                 a.total_bytes_processed / POW(10, 9) as gb_processed,
                 TIMESTAMP_DIFF(a.end_time, a.start_time, SECOND) as duration_seconds,
+                a.job_type,
                 a.state,
                 a.error_result.reason as error_reason,
                 LEFT(a.query, 200) as query_preview,

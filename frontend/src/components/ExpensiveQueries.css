@@ -245,7 +245,7 @@
   border-radius: 4px;
   padding: 12px;
   font-size: 12px;
-  max-height: 200px;
+  max-height: 600px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -502,11 +502,9 @@
   color: #5f6368;
 }
 
-/* Optimization tab styles */
-.optimization-tab {
-  max-height: 600px;
-  overflow-y: auto;
-}
+
+
+
 
 .optimization-header {
   display: flex;
@@ -1027,7 +1025,7 @@
 .queries-section .query-code {
   font-size: 9px;
   line-height: 1.2;
-  max-height: 120px;
+  max-height: 300px;
   overflow-y: auto;
 }
 
@@ -1048,5 +1046,4 @@
 
 .queries-section .metric-value {
   font-size: 10px;
-}
 }
